@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local machine-specific stuff
+*.local
+calibration/          # if any local calibration cache lands in the repo dir
+*.log

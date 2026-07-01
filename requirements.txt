@@ -1,0 +1,12 @@
+# Dum-E — Phase 0/1 dependencies (Windows desktop, Python 3.12)
+#
+# NOTE: lerobot pulls opencv-python-HEADLESS, which has no GUI windows.
+# Our camera scripts use cv2.imshow, so after installing, force the full build:
+#     pip uninstall -y opencv-python-headless
+#     pip install opencv-python
+# (see WINDOWS_SETUP.md)
+
+lerobot[feetech]>=0.5.1
+opencv-python>=4.10
+mediapipe>=0.10
+numpy
