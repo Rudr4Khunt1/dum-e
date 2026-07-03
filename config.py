@@ -26,13 +26,29 @@ FRAME_W, FRAME_H = 1280, 720
 PAN_JOINT  = "shoulder_pan"    # left/right "look"  (joint 1)
 TILT_JOINT = "wrist_flex"      # up/down "look"     (joint 4)
 
-GAIN_PAN,  GAIN_TILT  = 0.03, 0.03   # chase strength (raise if sluggish, lower if jittery)
+# Because the camera is FIXED and side-offset, moving the arm does NOT change the
+# image, so "follow" is a look-at MAPPING (pixel offset -> absolute joint angle),
+# NOT error-integration. K_* is degrees of joint travel per pixel of hand offset
+# from image center.  pan_target = start_pan + SIGN_PAN * K_PAN * (u - w/2).
+#
+# CALIBRATE (~2 min, once): aim the arm at your hand held at the LEFT frame edge,
+# note the pan angle; repeat at the RIGHT edge; then
+#     K_PAN = (pan_right - pan_left) / (u_right - u_left)
+# Same idea for tilt using the top/bottom edges. Defaults below are conservative.
+K_PAN,  K_TILT  = 0.08, 0.08         # deg of joint travel per pixel of hand offset
 SIGN_PAN,  SIGN_TILT  = +1, +1       # flip a sign if it steers AWAY from your hand
 SMOOTHING = 0.15                     # 0..1 glide toward target (lower = smoother/slower)
-DEADZONE_PX = 30                     # ignore errors smaller than this (anti-twitch)
+DEADZONE_PX = 30                     # hold position for errors smaller than this (anti-twitch)
 
-# How far the "head" may sweep from its startup pose, in degrees (anti-windup).
+# How far the "head" may sweep from its startup pose, in degrees. This is the
+# hard safety envelope: the FINAL summed pose (follow + future idle/gesture) is
+# clamped to it every tick, AFTER mixing, right before it reaches the servos.
 PAN_LIMIT_DEG  = 70.0
 TILT_LIMIT_DEG = 45.0
 
 FOLLOW_HZ = 25                 # loop rate
+
+# safe_park: on every exit (q / Ctrl-C / crash) the arm glides back to its startup
+# rest pose over this many seconds BEFORE torque is released, so it never sags from
+# an extended pose onto the desk. Set 0 to disable the glide (releases in place).
+PARK_SECONDS = 1.5
