@@ -8,6 +8,9 @@ That means "follow" is a look-at MAPPING (a hand at pixel X maps to a fixed join
 angle), NOT error-integration -- integrating pixel error with a fixed camera has
 no feedback path and just ramps the arm into its clamp. See config.py K_PAN/K_TILT.
 
+Hand tracking uses the MediaPipe Tasks API (via hand_tracker.py) because the
+legacy mp.solutions API isn't available on Python 3.12.
+
 Non-tracking joints hold their startup pose. On exit the arm parks (safe_park)
 before torque is released, so it never sags onto the desk.
 
@@ -28,9 +31,9 @@ import time
 import platform
 
 import cv2
-import mediapipe as mp
 
 import config as C
+from hand_tracker import HandTracker, WRIST
 
 
 def clamp(x, lo, hi):
@@ -65,7 +68,13 @@ def safe_park(robot, cmd, start):
     except Exception as e:  # noqa: BLE001 -- park is best-effort; torque must still release
         print(f"safe_park warning (releasing torque anyway): {e}")
     finally:
-        robot.disconnect()
+        # Hardened: an overloaded motor rejects the torque-disable write and would
+        # otherwise crash the exit with a traceback. Catch it and tell the user.
+        try:
+            robot.disconnect()
+        except Exception as e:  # noqa: BLE001
+            print(f"[warn] torque-disable on exit failed: {e}")
+            print("       If it says 'Overload', POWER-CYCLE the arm to clear the alarm.")
 
 
 def main():
@@ -101,7 +110,7 @@ def main():
     cmd = dict(start)      # the pose we send, smoothed toward `target`
     target = dict(start)   # goal the hand-tracker maps to
 
-    # ---- camera ----
+    # ---- camera + hand tracker ----
     backend = cv2.CAP_DSHOW if platform.system() == "Windows" else cv2.CAP_ANY
     cap = cv2.VideoCapture(C.CAMERA_INDEX, backend)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, C.FRAME_W)
@@ -113,9 +122,7 @@ def main():
             f"Camera {C.CAMERA_INDEX} did not open. Try another CAMERA_INDEX in config.py"
         )
 
-    hands = mp.solutions.hands.Hands(
-        max_num_hands=1, min_detection_confidence=0.5, min_tracking_confidence=0.5
-    )
+    tracker = HandTracker()
 
     frozen = False
     period = 1.0 / C.FOLLOW_HZ
@@ -127,11 +134,10 @@ def main():
                 break
             frame = cv2.flip(frame, 1)  # mirror = natural
             h, w = frame.shape[:2]
-            res = hands.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            lms = tracker.detect(frame)
 
-            if res.multi_hand_landmarks and not frozen:
-                wrist = res.multi_hand_landmarks[0].landmark[0]
-                u, v = wrist.x * w, wrist.y * h
+            if lms and not frozen:
+                u, v = lms[WRIST][0] * w, lms[WRIST][1] * h
                 err_x = u - w / 2   # +ve => hand is right of center
                 err_y = v - h / 2   # +ve => hand is below center
                 # Look-at MAPPING: pixel offset -> ABSOLUTE joint angle (note '=', not '+=').
@@ -173,6 +179,7 @@ def main():
     finally:
         cap.release()
         cv2.destroyAllWindows()
+        tracker.close()
         if robot is not None:
             safe_park(robot, cmd, start)
             print("Stopped. Torque released.")

@@ -1,7 +1,7 @@
 """
-camera_test.py — verify the C920 + MediaPipe hand tracking BEFORE the arm moves.
+camera_test.py — verify the C920 + hand tracking BEFORE the arm moves.
 
-Opens the camera, tracks one hand, draws it, and prints the tracked pixel + FPS.
+Opens the camera, tracks one hand, draws the skeleton, prints the wrist pixel + FPS.
 Use it to check camera placement/focus and to find the right CAMERA_INDEX.
 
 Press 'q' to quit. (No arm involved — safe to run anytime.)
@@ -10,9 +10,9 @@ import time
 import platform
 
 import cv2
-import mediapipe as mp
 
 import config as C
+from hand_tracker import HandTracker, HAND_CONNECTIONS, WRIST
 
 
 def main():
@@ -25,40 +25,41 @@ def main():
             f"Camera {C.CAMERA_INDEX} did not open. Try another CAMERA_INDEX in config.py"
         )
 
-    hands = mp.solutions.hands.Hands(max_num_hands=1, min_detection_confidence=0.5)
-    draw = mp.solutions.drawing_utils
-    conns = mp.solutions.hands.HAND_CONNECTIONS
-
+    tracker = HandTracker()
     n, t0 = 0, time.time()
     print("Show your hand. Press 'q' to quit.")
-    while True:
-        ok, frame = cap.read()
-        if not ok:
-            break
-        frame = cv2.flip(frame, 1)  # mirror so it feels natural
-        h, w = frame.shape[:2]
-        res = hands.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    try:
+        while True:
+            ok, frame = cap.read()
+            if not ok:
+                break
+            frame = cv2.flip(frame, 1)  # mirror so it feels natural
+            h, w = frame.shape[:2]
 
-        if res.multi_hand_landmarks:
-            lm = res.multi_hand_landmarks[0]
-            draw.draw_landmarks(frame, lm, conns)
-            wrist = lm.landmark[0]
-            u, v = int(wrist.x * w), int(wrist.y * h)
-            cv2.circle(frame, (u, v), 8, (0, 255, 0), -1)
-            cv2.putText(frame, f"hand ({u},{v})", (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+            lms = tracker.detect(frame)
+            if lms:
+                pts = [(int(x * w), int(y * h)) for (x, y) in lms]
+                for a, b in HAND_CONNECTIONS:
+                    cv2.line(frame, pts[a], pts[b], (0, 200, 0), 2)
+                for p in pts:
+                    cv2.circle(frame, p, 3, (0, 255, 0), -1)
+                u, v = pts[WRIST]
+                cv2.circle(frame, (u, v), 8, (0, 255, 0), -1)
+                cv2.putText(frame, f"hand ({u},{v})", (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
 
-        cv2.drawMarker(frame, (w // 2, h // 2), (255, 255, 255), cv2.MARKER_CROSS, 20, 1)
-        n += 1
-        if n % 30 == 0:
-            print(f"FPS ~{n / (time.time() - t0):.1f}")
+            cv2.drawMarker(frame, (w // 2, h // 2), (255, 255, 255), cv2.MARKER_CROSS, 20, 1)
+            n += 1
+            if n % 30 == 0:
+                print(f"FPS ~{n / (time.time() - t0):.1f}")
 
-        cv2.imshow("Dum-E camera test  (q to quit)", frame)
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            break
-
-    cap.release()
-    cv2.destroyAllWindows()
+            cv2.imshow("Dum-E camera test  (q to quit)", frame)
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
+        tracker.close()
 
 
 if __name__ == "__main__":

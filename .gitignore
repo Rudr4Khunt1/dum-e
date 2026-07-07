@@ -14,3 +14,6 @@ Thumbs.db
 *.local
 calibration/          # if any local calibration cache lands in the repo dir
 *.log
+
+# MediaPipe model (auto-downloaded on first run)
+*.task

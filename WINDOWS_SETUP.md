@@ -71,9 +71,13 @@ SAFETY: clear the workspace, hand near power.
 python camera_test.py
 ```
 A window opens; show your hand -> it draws the hand skeleton + prints the pixel.
+- FIRST RUN downloads `hand_landmarker.task` (~7 MB) — needs internet once.
 - Wrong camera opens? Change `CAMERA_INDEX` (0 -> 1 -> 2) in config.py.
 - Use this to check the mount sees the whole workspace + where your hand enters.
 - LOCK THE C920 FOCUS in Logitech G HUB (or it may drift and break homography later).
+
+> Hand tracking uses the MediaPipe **Tasks API** (`hand_tracker.py`), because the
+> legacy `mp.solutions` API isn't available on Python 3.12 (and LeRobot needs 3.12).
 
 ### 5c. follow.py  — Phase 1: it follows your hand
 ```bat
@@ -100,7 +104,8 @@ Tuning (edit `config.py`, no code changes):
 | `cv2.imshow` errors / no window | You have opencv-headless — do the uninstall/install in step 1. |
 | Wrong camera opens | Change `CAMERA_INDEX` in config.py (try 1, 2, ...). |
 | Camera slow to open on Windows | Normal for the DSHOW backend; give it a few seconds. |
-| `mediapipe` install fails on 3.12 | Ping me — we'll pin a working version or use the tasks API. |
+| `module 'mediapipe' has no attribute 'solutions'` | Expected on 3.12 — we use the Tasks API (`hand_tracker.py`); make sure you pulled the latest. |
+| Hand model won't download | Grab it manually (URL printed by the script) and drop `hand_landmarker.task` in the repo folder. |
 | Torch "no kernel image for device" | Newer CUDA build needed — see step 2. |
 | Arm won't move but connects | Did you calibrate (step 4) with the same `--robot.id`? |
 | Arm flops when I power off | Expected — servos have no torque unpowered. Park it low first. |

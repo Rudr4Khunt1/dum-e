@@ -9,7 +9,7 @@ you never have to touch the script bodies.
 # Follower controller-board serial port.
 #   Windows: run `lerobot-find-port`   ->  e.g. "COM5"
 #   Mac:     e.g. "/dev/tty.usbmodem5B141157431"
-PORT = "COM5"                  # <-- EDIT THIS to your port
+PORT = "COM7"                  # <-- EDIT THIS to your port (yours showed COM7)
 
 ROBOT_ID = "dum_e_follower"    # must match the --robot.id you calibrated with
 USE_DEGREES = True             # report/command joint angles in degrees (readable)
