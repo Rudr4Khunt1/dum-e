@@ -52,6 +52,17 @@ SIGN_PAN,  SIGN_TILT  = +1, +1       # flip a sign if it steers AWAY from your h
 SMOOTHING = 0.15                     # 0..1 glide toward target (lower = smoother/slower)
 DEADZONE_PX = 30                     # hold position for errors smaller than this (anti-twitch)
 
+# ── Jitter control ─────────────────────────────────────────────────────────
+# MediaPipe landmarks wobble several px even when your hand is perfectly still, and
+# at K deg/px that noise turns into visible servo shake. Two defenses:
+#   1) track the PALM CENTER (mean of 5 landmarks) instead of the lone wrist point
+#   2) a One-Euro filter on the pixel position: smooths HARD when the hand is still
+#      (jitter dies) and loosens when it moves fast (stays responsive). A plain EMA
+#      can't do both -- one constant forces you to trade jitter against lag.
+USE_PALM_CENTER = True
+FILTER_MIN_CUTOFF = 1.0              # LOWER = smoother when still (more lag). Try 0.5 if still shaky.
+FILTER_BETA = 0.01                   # HIGHER = less lag when moving fast. Try 0.02 if it feels sluggish.
+
 # How far the "head" may sweep from its startup pose, in degrees. This is the
 # hard safety envelope: the FINAL summed pose (follow + future idle/gesture) is
 # clamped to it every tick, AFTER mixing, right before it reaches the servos.

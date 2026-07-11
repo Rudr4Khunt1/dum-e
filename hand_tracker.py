@@ -25,6 +25,19 @@ _MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hand_lan
 # Landmark index used as the tracked point (0 = wrist).
 WRIST = 0
 
+# Wrist + the four finger bases. Averaging these gives the PALM CENTER, which is far
+# steadier than the lone wrist point -- a single landmark jitters several px frame to
+# frame, and at K deg/px that noise becomes visible servo shake. Averaging 5 roughly
+# independent estimates cuts that noise substantially, for free.
+PALM_LANDMARKS = (0, 5, 9, 13, 17)
+
+
+def palm_center(hand):
+    """Mean of the palm landmarks -> (x, y) normalized. Steadier than the wrist."""
+    xs = [hand[i][0] for i in PALM_LANDMARKS]
+    ys = [hand[i][1] for i in PALM_LANDMARKS]
+    return sum(xs) / len(xs), sum(ys) / len(ys)
+
 # 21-landmark hand skeleton (for drawing in camera_test.py).
 HAND_CONNECTIONS = [
     (0, 1), (1, 2), (2, 3), (3, 4),          # thumb

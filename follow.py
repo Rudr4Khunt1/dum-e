@@ -51,7 +51,8 @@ import platform
 import cv2
 
 import config as C
-from hand_tracker import HandTracker, WRIST
+from filters import OneEuro
+from hand_tracker import HandTracker, WRIST, palm_center
 
 
 def clamp(x, lo, hi):
@@ -216,6 +217,11 @@ def main():
     cmd = dict(start)
     target = dict(start)
 
+    # One-Euro filters on the hand PIXEL position -- this is where jitter is killed,
+    # at the source, before it ever becomes a servo command.
+    fu = OneEuro(C.FOLLOW_HZ, C.FILTER_MIN_CUTOFF, C.FILTER_BETA)
+    fv = OneEuro(C.FOLLOW_HZ, C.FILTER_MIN_CUTOFF, C.FILTER_BETA)
+
     frozen = False
     last_uv = None            # the hand we're locked onto (for continuity)
     err_x = err_y = 0.0
@@ -235,7 +241,12 @@ def main():
             lms = pick_hand(hands, last_uv, w, h)
 
             if lms is not None:
-                u, v = lms[WRIST][0] * w, lms[WRIST][1] * h
+                # Palm center (mean of 5 landmarks) is much steadier than the lone wrist.
+                hx, hy = palm_center(lms) if C.USE_PALM_CENTER else lms[WRIST]
+                u_raw, v_raw = hx * w, hy * h
+                # One-Euro: heavy smoothing while your hand is still (jitter dies),
+                # loosens as it moves (no lag). THIS is the anti-shake.
+                u, v = fu(u_raw), fv(v_raw)
                 last_uv = (u, v)
                 err_x = u - w / 2   # +ve => hand right of center
                 err_y = v - h / 2   # +ve => hand below center
@@ -247,9 +258,12 @@ def main():
                     if abs(err_y) > C.DEADZONE_PX:
                         target[tilt] = start[tilt] + sign_tilt * k_tilt * err_y
 
-                cv2.circle(frame, (int(u), int(v)), 10, (0, 255, 255), -1)  # locked hand
+                cv2.circle(frame, (int(u_raw), int(v_raw)), 5, (0, 140, 255), 1)  # raw (noisy)
+                cv2.circle(frame, (int(u), int(v)), 10, (0, 255, 255), -1)        # filtered -> drives the arm
             else:
                 last_uv = None  # lost it; re-acquire fresh next time
+                fu.reset()
+                fv.reset()
 
             if not frozen:
                 for k in (pan, tilt):
