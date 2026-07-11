@@ -114,6 +114,54 @@ def safe_park(robot, cmd, start):
             print("       If it says 'Overload', POWER-CYCLE the arm to clear the alarm.")
 
 
+def aim_mode(robot, cap, pan, tilt):
+    """Jog the head until it points at the image-center crosshair, then lock that
+    pose in as the reference.
+
+    WHY THIS EXISTS: the mapping is  pan = start_pan + K * err_x.  So the startup
+    pose *defines* where "image center" is. If the arm starts aimed at your face
+    while the crosshair sits on your chest, every angle inherits that offset and
+    the head orbits your head instead of landing on your hand.
+    """
+    pose = {k: v for k, v in robot.get_observation().items() if k.endswith(".pos")}
+    print("\n== AIM ==  point the head at the RED crosshair (image center)")
+    print("   j / l  pan left / right      i / k  tilt up / down      ENTER  lock it in")
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        if C.MIRROR:
+            frame = cv2.flip(frame, 1)
+        h, w = frame.shape[:2]
+        cv2.drawMarker(frame, (w // 2, h // 2), (0, 0, 255), cv2.MARKER_CROSS, 40, 2)
+        for i, line in enumerate([
+            "AIM: point the head at the RED cross, then ENTER",
+            f"pan {pose[pan]:+7.2f}   tilt {pose[tilt]:+7.2f}  deg",
+            "j/l = pan   i/k = tilt   ENTER = lock",
+        ]):
+            cv2.putText(frame, line, (10, 30 + i * 28),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+        cv2.imshow("Dum-E FOLLOW  (q quit, space freeze, a/z signs, [ ] K)", frame)
+
+        key = cv2.waitKey(1) & 0xFF
+        if key in (13, 10):           # ENTER
+            break
+        elif key == ord("j"):
+            pose[pan] -= C.AIM_STEP_DEG
+        elif key == ord("l"):
+            pose[pan] += C.AIM_STEP_DEG
+        elif key == ord("i"):
+            pose[tilt] -= C.AIM_STEP_DEG
+        elif key == ord("k"):
+            pose[tilt] += C.AIM_STEP_DEG
+        else:
+            continue
+        robot.send_action(pose)
+
+    print(f"Reference locked: pan {pose[pan]:+.2f}  tilt {pose[tilt]:+.2f}\n")
+    return pose
+
+
 def main():
     ap = argparse.ArgumentParser(description="Dum-E FOLLOW loop")
     ap.add_argument("--dry-run", action="store_true",
@@ -144,11 +192,6 @@ def main():
         print(f"Connecting to arm on {C.PORT} ...")
         robot.connect()
         start = {k: v for k, v in robot.get_observation().items() if k.endswith(".pos")}
-        print("Connected. Show your hand.")
-        print("  q quit | space freeze | a/z flip pan/tilt sign | [ ] adjust K")
-
-    cmd = dict(start)
-    target = dict(start)
 
     # ---- camera + tracker ----
     backend = cv2.CAP_DSHOW if platform.system() == "Windows" else cv2.CAP_ANY
@@ -157,12 +200,21 @@ def main():
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, C.FRAME_H)
     if not cap.isOpened():
         if robot is not None:
-            safe_park(robot, cmd, start)
+            safe_park(robot, dict(start), start)
         raise SystemExit(
             f"Camera {C.CAMERA_INDEX} did not open. Try another CAMERA_INDEX in config.py"
         )
 
     tracker = HandTracker(num_hands=C.NUM_HANDS)
+
+    # ---- aim: define where "image center" is, in joint angles ----
+    if robot is not None and C.AIM_ON_START:
+        start = aim_mode(robot, cap, pan, tilt)
+    if robot is not None:
+        print("Tracking. q quit | space freeze | a/z flip signs | [ ] adjust K")
+
+    cmd = dict(start)
+    target = dict(start)
 
     frozen = False
     last_uv = None            # the hand we're locked onto (for continuity)
