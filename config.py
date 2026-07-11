@@ -77,7 +77,8 @@ TILT_LIMIT_DEG = 45.0
 ENABLE_ROLL = True
 ROLL_JOINT  = "wrist_roll"           # motor 5
 K_ROLL      = 1.0                    # 1.0 = 1:1 (turn hand 30 deg -> gripper 30 deg)
-SIGN_ROLL   = +1                     # flip if it rotates the wrong way
+SIGN_ROLL   = -1                     # -1: the gripper FACES you, so it must mirror your
+                                     # roll (and the frame is mirrored too). Flip if wrong.
 ROLL_LIMIT_DEG = 90.0
 
 # ── Personality (soul.md, rungs 1-2: it droops when it loses you) ──────────
