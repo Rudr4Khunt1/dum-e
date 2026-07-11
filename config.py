@@ -48,7 +48,8 @@ TILT_JOINT = "wrist_flex"      # up/down "look"     (joint 4)
 # C920: its advertised "78 deg" is the DIAGONAL. The real ones are
 #   horizontal ~70.4 deg / 1280 px -> 0.055     vertical ~43.3 deg / 720 px -> 0.060
 K_PAN,  K_TILT  = 0.055, 0.060       # deg of joint travel per pixel of hand offset
-SIGN_PAN,  SIGN_TILT  = +1, +1       # flip a sign if it steers AWAY from your hand
+SIGN_PAN,  SIGN_TILT  = -1, +1       # flip a sign if it steers AWAY from your hand
+                                     # (pan is -1: the mirrored frame inverts left/right)
 SMOOTHING = 0.15                     # 0..1 glide toward target (lower = smoother/slower)
 DEADZONE_PX = 30                     # hold position for errors smaller than this (anti-twitch)
 
@@ -68,6 +69,36 @@ FILTER_BETA = 0.01                   # HIGHER = less lag when moving fast. Try 0
 # clamped to it every tick, AFTER mixing, right before it reaches the servos.
 PAN_LIMIT_DEG  = 70.0
 TILT_LIMIT_DEG = 45.0
+
+# ── Gripper roll: mirror your hand's rotation (turn it like a safe dial) ────
+# Read from the wrist -> middle-finger-base vector, i.e. the hand's IN-PLANE angle.
+# (True forearm twist/pronation is out-of-plane and 2D landmarks read it poorly, so
+# rotate your hand like a steering wheel facing the camera.)
+ENABLE_ROLL = True
+ROLL_JOINT  = "wrist_roll"           # motor 5
+K_ROLL      = 1.0                    # 1.0 = 1:1 (turn hand 30 deg -> gripper 30 deg)
+SIGN_ROLL   = +1                     # flip if it rotates the wrong way
+ROLL_LIMIT_DEG = 90.0
+
+# ── Personality (soul.md, rungs 1-2: it droops when it loses you) ──────────
+# The FOLLOW loop already knows when the hand appears and disappears -- that's all an
+# emotional beat needs. Mood also scales the SMOOTHING, which is where the feeling
+# actually lives: sad = slow + heavy, excited = fast + eager. Same poses, different
+# timing, completely different character.
+ENABLE_PERSONALITY = True
+LOST_AFTER_S    = 1.5                # no hand for this long -> droop ("where'd you go...")
+DROOP_DEG       = 25.0               # how far the head sags (FLIP SIGN if it droops UP)
+DROOP_SMOOTHING = 0.04               # slow + heavy = sad
+PERK_DEG        = 12.0               # overshoot upward when you come back ("there you are!")
+PERK_SECONDS    = 0.6
+PERK_SMOOTHING  = 0.30               # fast + eager = excited
+
+# ── Slew-rate cap (deg/sec) ────────────────────────────────────────────────
+# The base carries the arm's whole mass, and the printed structure is compliant --
+# slew it fast and it RINGS like a pendulum. That's the shake that appears only when
+# the base moves; no amount of landmark filtering fixes it. Capping angular velocity
+# stops us exciting the resonance. LOWER = gentler, less wobble (try 60 or 45).
+MAX_DEG_PER_SEC = 90.0
 
 FOLLOW_HZ = 25                 # loop rate
 

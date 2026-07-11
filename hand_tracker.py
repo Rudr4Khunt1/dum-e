@@ -8,6 +8,7 @@ The legacy `mp.solutions` API is NOT available on 3.12, and LeRobot 0.5.1
 Both camera_test.py and follow.py use HandTracker so the MediaPipe details live
 in exactly one place.
 """
+import math
 import os
 import urllib.request
 
@@ -37,6 +38,22 @@ def palm_center(hand):
     xs = [hand[i][0] for i in PALM_LANDMARKS]
     ys = [hand[i][1] for i in PALM_LANDMARKS]
     return sum(xs) / len(xs), sum(ys) / len(ys)
+
+
+def hand_roll_deg(hand):
+    """The hand's IN-PLANE rotation, in degrees, from the wrist -> middle-finger-base
+    vector. 0 = fingers pointing straight up in the image; turn your hand like a
+    steering wheel / safe dial and this tracks it.
+
+    Caveat: this reads rotation *in the image plane*. True forearm twist (pronation --
+    palm turning to face sideways) is an out-of-plane motion that 2D landmarks read
+    poorly, so keep the palm roughly facing the camera as you turn.
+    """
+    x0, y0 = hand[0]   # wrist
+    x9, y9 = hand[9]   # middle finger base
+    # image y grows downward, so negate it to get a normal math angle
+    ang = math.degrees(math.atan2(-(y9 - y0), x9 - x0)) - 90.0  # fingers-up => 0
+    return (ang + 180.0) % 360.0 - 180.0                        # wrap to [-180, 180)
 
 # 21-landmark hand skeleton (for drawing in camera_test.py).
 HAND_CONNECTIONS = [
