@@ -25,7 +25,7 @@ def main():
             f"Camera {C.CAMERA_INDEX} did not open. Try another CAMERA_INDEX in config.py"
         )
 
-    tracker = HandTracker()
+    tracker = HandTracker(num_hands=C.NUM_HANDS)
     n, t0 = 0, time.time()
     print("Show your hand. Press 'q' to quit.")
     try:
@@ -33,11 +33,12 @@ def main():
             ok, frame = cap.read()
             if not ok:
                 break
-            frame = cv2.flip(frame, 1)  # mirror so it feels natural
+            if C.MIRROR:
+                frame = cv2.flip(frame, 1)
             h, w = frame.shape[:2]
 
-            lms = tracker.detect(frame)
-            if lms:
+            hands = tracker.detect(frame)
+            for lms in hands:  # draw every hand it sees (incl. your keyboard hand)
                 pts = [(int(x * w), int(y * h)) for (x, y) in lms]
                 for a, b in HAND_CONNECTIONS:
                     cv2.line(frame, pts[a], pts[b], (0, 200, 0), 2)
@@ -45,8 +46,10 @@ def main():
                     cv2.circle(frame, p, 3, (0, 255, 0), -1)
                 u, v = pts[WRIST]
                 cv2.circle(frame, (u, v), 8, (0, 255, 0), -1)
-                cv2.putText(frame, f"hand ({u},{v})", (10, 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                cv2.putText(frame, f"({u},{v})", (u + 12, v),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            cv2.putText(frame, f"hands: {len(hands)}", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
 
             cv2.drawMarker(frame, (w // 2, h // 2), (255, 255, 255), cv2.MARKER_CROSS, 20, 1)
             n += 1

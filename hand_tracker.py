@@ -51,10 +51,18 @@ def _ensure_model():
 
 
 class HandTracker:
-    """Detects one hand per frame. `detect()` returns the 21 landmarks as
-    normalized (x, y) tuples (0..1), or None if no hand is visible."""
+    """Detects hands in a frame.
 
-    def __init__(self, num_hands=1, min_confidence=0.5):
+    `detect()` returns a LIST of hands (possibly empty). Each hand is a list of
+    21 normalized (x, y) tuples; index WRIST (0) is the tracked point.
+
+    We detect more than one hand on purpose: with a single-hand detector, the
+    tracker flips between your commanding hand and the hand resting on your
+    keyboard, and the arm jitters between them. follow.py picks the hand nearest
+    the one it was already tracking.
+    """
+
+    def __init__(self, num_hands=2, min_confidence=0.5):
         _ensure_model()
         options = vision.HandLandmarkerOptions(
             base_options=mp_python.BaseOptions(model_asset_path=_MODEL_PATH),
@@ -69,9 +77,7 @@ class HandTracker:
         rgb = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
         result = self._landmarker.detect(mp_image)
-        if not result.hand_landmarks:
-            return None
-        return [(lm.x, lm.y) for lm in result.hand_landmarks[0]]
+        return [[(lm.x, lm.y) for lm in hand] for hand in result.hand_landmarks]
 
     def close(self):
         self._landmarker.close()

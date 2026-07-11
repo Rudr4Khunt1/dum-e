@@ -22,6 +22,15 @@ MAX_STEP_DEG = 8.0
 CAMERA_INDEX = 0               # if the wrong camera opens, try 1, 2, ...
 FRAME_W, FRAME_H = 1280, 720
 
+# Mirror the frame horizontally (natural "selfie" feel in the preview).
+# Harmless for FOLLOW -- it only decides which way SIGN_PAN must point.
+# Set False for the homography/PICK phase so pixel coords map honestly to the world.
+MIRROR = True
+
+# Detect up to N hands. With 2, follow.py locks onto the hand nearest the one it
+# was already tracking -- so it won't jump to your other hand resting on the keyboard.
+NUM_HANDS = 2
+
 # ── FOLLOW loop ────────────────────────────────────────────────────────────
 PAN_JOINT  = "shoulder_pan"    # left/right "look"  (joint 1)
 TILT_JOINT = "wrist_flex"      # up/down "look"     (joint 4)
