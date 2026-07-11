@@ -50,8 +50,8 @@ TILT_JOINT = "wrist_flex"      # up/down "look"     (joint 4)
 K_PAN,  K_TILT  = 0.055, 0.060       # deg of joint travel per pixel of hand offset
 SIGN_PAN,  SIGN_TILT  = -1, +1       # flip a sign if it steers AWAY from your hand
                                      # (pan is -1: the mirrored frame inverts left/right)
-SMOOTHING = 0.15                     # 0..1 glide toward target (lower = smoother/slower)
-DEADZONE_PX = 30                     # hold position for errors smaller than this (anti-twitch)
+SMOOTHING = 0.28                     # 0..1 glide toward target (HIGHER = snappier, less lag)
+DEADZONE_PX = 25                     # hold position for errors smaller than this (anti-twitch)
 
 # ── Jitter control ─────────────────────────────────────────────────────────
 # MediaPipe landmarks wobble several px even when your hand is perfectly still, and
@@ -62,7 +62,8 @@ DEADZONE_PX = 30                     # hold position for errors smaller than thi
 #      can't do both -- one constant forces you to trade jitter against lag.
 USE_PALM_CENTER = True
 FILTER_MIN_CUTOFF = 1.0              # LOWER = smoother when still (more lag). Try 0.5 if still shaky.
-FILTER_BETA = 0.01                   # HIGHER = less lag when moving fast. Try 0.02 if it feels sluggish.
+FILTER_BETA = 0.03                   # HIGHER = less lag when moving fast. This is the knob that
+                                     # fixes "it lags behind my hand". Costs nothing at rest.
 
 # How far the "head" may sweep from its startup pose, in degrees. This is the
 # hard safety envelope: the FINAL summed pose (follow + future idle/gesture) is
@@ -92,16 +93,29 @@ DROOP_DEG       = 25.0               # how far the head sags (FLIP SIGN if it dr
 DROOP_SMOOTHING = 0.04               # slow + heavy = sad
 PERK_DEG        = 12.0               # overshoot upward when you come back ("there you are!")
 PERK_SECONDS    = 0.6
-PERK_SMOOTHING  = 0.30               # fast + eager = excited
+PERK_SMOOTHING  = 0.50               # fast + eager = excited. Kept well ABOVE the normal
+                                     # SMOOTHING so the perk still reads as a burst of
+                                     # excitement -- the CONTRAST is the character, not the
+                                     # absolute speed. (droop 0.04 << track 0.28 << perk 0.50)
 
-# ── Slew-rate cap (deg/sec) ────────────────────────────────────────────────
-# The base carries the arm's whole mass, and the printed structure is compliant --
-# slew it fast and it RINGS like a pendulum. That's the shake that appears only when
-# the base moves; no amount of landmark filtering fixes it. Capping angular velocity
-# stops us exciting the resonance. LOWER = gentler, less wobble (try 60 or 45).
-MAX_DEG_PER_SEC = 90.0
+# ── Slew-rate caps, PER JOINT (deg/sec) ────────────────────────────────────
+# Only the BASE rings: it swings the arm's entire mass, and the printed structure is
+# compliant, so a fast slew sets it oscillating like a pendulum. The wrist joints move
+# almost no mass and can snap as fast as the servo allows -- throttling THEM to the
+# base's limit is what made the whole robot feel lazy.
+#   shoulder_pan -> LOWER this if the base starts ringing again (90 is very safe)
+#   wrist_roll   -> nearly massless, let it fly
+MAX_DEG_PER_SEC = {
+    "shoulder_pan": 130.0,   # the heavy one (the only one that rings)
+    "shoulder_lift": 120.0,
+    "elbow_flex":   140.0,
+    "wrist_flex":   240.0,
+    "wrist_roll":   340.0,   # snappy
+    "gripper":      300.0,
+}
+DEFAULT_MAX_DEG_PER_SEC = 160.0   # for any joint not listed above
 
-FOLLOW_HZ = 25                 # loop rate
+FOLLOW_HZ = 30                 # loop rate (more updates/sec = smoother AND more responsive)
 
 # On startup, jog the head until it points at the image-center crosshair, then lock
 # that pose as the reference. THIS MATTERS: the mapping is pan = start_pan + K*err,

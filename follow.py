@@ -219,7 +219,15 @@ def main():
     frozen = False
     last_uv = None
     err_x = err_y = roll_deg = 0.0
-    max_step = C.MAX_DEG_PER_SEC / C.FOLLOW_HZ   # slew cap, deg per tick
+
+    # Slew caps are PER JOINT: only the base rings (it swings the whole arm's mass).
+    # The wrist joints move almost nothing and can snap -- capping them at the base's
+    # limit is what made the robot feel lazy.
+    caps = {}
+    for key in (pan, tilt, roll):
+        name = key.rsplit(".", 1)[0]
+        caps[key] = C.MAX_DEG_PER_SEC.get(name, C.DEFAULT_MAX_DEG_PER_SEC) / C.FOLLOW_HZ
+
     period = 1.0 / C.FOLLOW_HZ
 
     try:
@@ -286,8 +294,9 @@ def main():
                 keys = [pan, tilt] + ([roll] if C.ENABLE_ROLL else [])
                 for k in keys:
                     step = smoothing * (target[k] - cmd[k])
-                    # slew cap: stops fast base moves from ringing the printed structure
-                    cmd[k] += clamp(step, -max_step, max_step)
+                    # per-joint slew cap: keeps the heavy base from ringing while letting
+                    # the near-massless wrist joints actually snap
+                    cmd[k] += clamp(step, -caps[k], caps[k])
 
             # [safety gate] clamp the final summed pose, right before the servos
             clamp_pose(cmd, start, limits)
