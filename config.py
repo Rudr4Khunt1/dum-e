@@ -98,6 +98,16 @@ PERK_SMOOTHING  = 0.50               # fast + eager = excited. Kept well ABOVE t
                                      # excitement -- the CONTRAST is the character, not the
                                      # absolute speed. (droop 0.04 << track 0.28 << perk 0.50)
 
+# ── Arm geometry (meters) — from the official SO-101 URDF ──────────────────
+# Used by kinematics.py for the top-down IK. Don't chase millimeters here:
+# X,Y residuals are absorbed by the homography (calibrated against where the arm
+# ACTUALLY lands) and Z by `ik_test.py touch`.
+LINK_L1    = 0.1160     # upper arm: shoulder_lift axis -> elbow_flex axis
+LINK_L2    = 0.1350     # forearm:   elbow_flex axis -> wrist_flex axis
+LINK_L3    = 0.1600     # wrist_flex axis -> fingertip grasp point (gripper vertical)
+LINK_H0    = 0.1160     # table -> shoulder_lift axis height
+LINK_R_OFF = 0.0300     # horizontal offset: pan axis -> shoulder column
+
 # ── Slew-rate caps, PER JOINT (deg/sec) ────────────────────────────────────
 # Only the BASE rings: it swings the arm's entire mass, and the printed structure is
 # compliant, so a fast slew sets it oscillating like a pendulum. The wrist joints move
