@@ -18,6 +18,10 @@ calibration/          # if any local calibration cache lands in the repo dir
 # MediaPipe model (auto-downloaded on first run)
 *.task
 
+# Machine-specific calibration (captured per-rig, never shared)
+arm_geom.json
+rest_pose.json
+
 # Never commit photos/screenshots of the rig (they contain the room, faces, etc.)
 *.jpg
 *.jpeg

@@ -43,6 +43,7 @@ import platform
 import cv2
 
 import config as C
+from arm_utils import safe_park, set_rest_interactive
 from filters import OneEuro
 from hand_tracker import HandTracker, WRIST, palm_center, hand_roll_deg
 
@@ -78,29 +79,6 @@ def pick_hand(hands, last_uv, w, h):
     return min(hands, key=dist2)
 
 
-def safe_park(robot, cmd, start):
-    """Glide back to the startup pose, THEN release torque, so the arm never sags onto
-    the desk from an extended pose. Best-effort: a park failure must never prevent the
-    torque release."""
-    try:
-        steps = max(1, int(C.FOLLOW_HZ * C.PARK_SECONDS))
-        period = 1.0 / C.FOLLOW_HZ
-        for i in range(1, steps + 1):
-            a = i / steps
-            pose = {k: cmd[k] + a * (start[k] - cmd[k]) for k in cmd}
-            robot.send_action(pose)
-            time.sleep(period)
-        print("Parked at rest pose.")
-    except Exception as e:  # noqa: BLE001
-        print(f"safe_park warning (releasing torque anyway): {e}")
-    finally:
-        try:
-            robot.disconnect()
-        except Exception as e:  # noqa: BLE001
-            print(f"[warn] torque-disable on exit failed: {e}")
-            print("       If it says 'Overload', POWER-CYCLE the arm to clear the alarm.")
-
-
 def aim_mode(robot, cap, pan, tilt):
     """Jog the head until it points at the image-center crosshair, then lock that pose
     as the reference.
@@ -128,6 +106,8 @@ def aim_mode(robot, cap, pan, tilt):
             cv2.putText(frame, line, (10, 30 + i * 28),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
         cv2.imshow("Dum-E FOLLOW", frame)
+        if cv2.getWindowProperty("Dum-E FOLLOW", cv2.WND_PROP_VISIBLE) < 1:
+            break                     # window closed = lock the current pose
 
         key = cv2.waitKey(1) & 0xFF
         if key in (13, 10):           # ENTER
@@ -152,8 +132,26 @@ def main():
     ap = argparse.ArgumentParser(description="Dum-E FOLLOW loop")
     ap.add_argument("--dry-run", action="store_true",
                     help="no arm: print commanded angles instead of moving servos")
+    ap.add_argument("--set-rest", action="store_true",
+                    help="capture the rest pose every script parks into on exit "
+                         "(torque off, you fold the arm, Enter, saved)")
     args = ap.parse_args()
     dry_run = args.dry_run
+
+    if args.set_rest:
+        from lerobot.robots.so_follower import SO101Follower, SO101FollowerConfig
+        robot = SO101Follower(SO101FollowerConfig(
+            port=C.PORT, id=C.ROBOT_ID, use_degrees=C.USE_DEGREES))
+        print(f"Connecting to arm on {C.PORT} ...")
+        robot.connect()
+        try:
+            set_rest_interactive(robot)
+        finally:
+            try:
+                robot.disconnect()
+            except Exception as e:  # noqa: BLE001
+                print(f"[warn] disconnect: {e}")
+        return
 
     pan = C.PAN_JOINT + ".pos"
     tilt = C.TILT_JOINT + ".pos"
@@ -171,11 +169,17 @@ def main():
         print("[DRY-RUN] No arm. Printing commanded angles; nothing moves.")
     else:
         from lerobot.robots.so_follower import SO101Follower, SO101FollowerConfig
+        # Per-joint step limits for LeRobot's safety clamp, set just ABOVE our own
+        # slew caps -- so OUR caps are the real limiter and LeRobot never trims a
+        # command (that trimming is what spammed "clamped to be safe" warnings and
+        # silently slowed the wrist below its configured speed).
+        mrt = {name: max(C.MAX_STEP_DEG, dps / C.FOLLOW_HZ * 1.25)
+               for name, dps in C.MAX_DEG_PER_SEC.items()}
         robot = SO101Follower(SO101FollowerConfig(
             port=C.PORT,
             id=C.ROBOT_ID,
             use_degrees=C.USE_DEGREES,
-            max_relative_target=C.MAX_STEP_DEG,
+            max_relative_target=mrt,
         ))
         print(f"Connecting to arm on {C.PORT} ...")
         robot.connect()
@@ -188,7 +192,7 @@ def main():
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, C.FRAME_H)
     if not cap.isOpened():
         if robot is not None:
-            safe_park(robot, dict(start), start)
+            safe_park(robot, fallback=start)
         raise SystemExit(
             f"Camera {C.CAMERA_INDEX} did not open. Try another CAMERA_INDEX in config.py"
         )
@@ -366,6 +370,8 @@ def main():
                             cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
 
             cv2.imshow("Dum-E FOLLOW", frame)
+            if cv2.getWindowProperty("Dum-E FOLLOW", cv2.WND_PROP_VISIBLE) < 1:
+                break                 # window closed with the mouse = same as 'q'
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
                 break
@@ -393,7 +399,7 @@ def main():
         cv2.destroyAllWindows()
         tracker.close()
         if robot is not None:
-            safe_park(robot, cmd, start)
+            safe_park(robot, fallback=start)
             print("Stopped. Torque released.")
         else:
             print("\n[DRY-RUN] done.")

@@ -12,6 +12,9 @@ import math
 import os
 import urllib.request
 
+# Quiet MediaPipe's C++ INFO/WARNING spam (must be set BEFORE importing mediapipe).
+os.environ.setdefault("GLOG_minloglevel", "2")
+
 import cv2
 import mediapipe as mp
 from mediapipe.tasks import python as mp_python

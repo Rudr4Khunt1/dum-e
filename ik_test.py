@@ -34,6 +34,7 @@ from lerobot.robots.so_follower import SO101Follower, SO101FollowerConfig
 
 import config as C
 import kinematics as K
+from arm_utils import pose_now, ramp_to, safe_park
 
 HZ = 25
 
@@ -49,42 +50,18 @@ def connect():
     return robot
 
 
-def pose_now(robot):
-    return {k: v for k, v in robot.get_observation().items() if k.endswith(".pos")}
-
-
-def ramp_to(robot, target: dict, seconds=2.0):
-    """Glide from the current pose to `target` in small steps (stays under the
-    safety clamp, and slow enough not to ring the base)."""
-    cur = pose_now(robot)
-    full = dict(cur)
-    steps = max(1, int(HZ * seconds))
-    for i in range(1, steps + 1):
-        a = i / steps
-        for k, v in target.items():
-            full[k] = cur[k] + a * (v - cur[k])
-        robot.send_action(full)
-        time.sleep(1.0 / HZ)
-
-
 def park(robot):
+    """Shared exit ritual (rest_pose.json). Fallback if not captured yet: a tucked
+    geom pose -- slight fold, low over the base, never a cantilevered faceplant."""
+    fallback = None
     try:
         gm = K.load_geom()
-        # tucked: slight fold, low over the base -- never a cantilevered faceplant
-        tucked = K.geom_to_robot(
+        fallback = K.geom_to_robot(
             {"shoulder_pan": 0.0, "shoulder_lift": 15.0, "elbow_flex": 130.0,
              "wrist_flex": 35.0}, gm)
-        ramp_to(robot, tucked, seconds=2.5)
-        print("Parked tucked.")
     except SystemExit:
-        pass  # no geom captured yet -- release where it stands
-    except Exception as e:  # noqa: BLE001
-        print(f"park warning: {e}")
-    finally:
-        try:
-            robot.disconnect()
-        except Exception as e:  # noqa: BLE001
-            print(f"[warn] torque-disable failed: {e} (if 'Overload': power-cycle the arm)")
+        pass  # no geom captured yet
+    safe_park(robot, fallback=fallback)
 
 
 def goto_xyz(robot, x, y, z, seconds=2.5):

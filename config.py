@@ -168,7 +168,14 @@ FOLLOW_HZ = 30                 # loop rate (more updates/sec = smoother AND more
 AIM_ON_START = True
 AIM_STEP_DEG = 2.0             # degrees per key press while aiming
 
-# safe_park: on every exit (q / Ctrl-C / crash) the arm glides back to its startup
-# rest pose over this many seconds BEFORE torque is released, so it never sags from
-# an extended pose onto the desk. Set 0 to disable the glide (releases in place).
-PARK_SECONDS = 1.5
+# safe_park: on every exit (q / Ctrl-C / crash / window closed) the arm glides to a
+# REST POSE over this many seconds, THEN releases torque (best practice: don't leave
+# servos energized; release in a pose where gravity has nothing to drop).
+PARK_SECONDS = 2.5
+
+# The rest pose lives in rest_pose.json — YOU define it, once:
+#     python follow.py --set-rest
+# (torque releases, you fold the arm into a compact, low, gravity-stable position —
+# elbow folded, gripper tucked near the base — press Enter, saved.)
+# Until it's set, park falls back to the aim pose (which sags on release).
+REST_POSE_FILE = "rest_pose.json"
