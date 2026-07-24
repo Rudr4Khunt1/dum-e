@@ -36,6 +36,7 @@ CONTROLS
 On exit it prints the tuned values to paste into config.py.
 """
 import argparse
+import math
 import time
 import platform
 
@@ -157,6 +158,7 @@ def main():
     pan = C.PAN_JOINT + ".pos"
     tilt = C.TILT_JOINT + ".pos"
     roll = C.ROLL_JOINT + ".pos"
+    sh, el, gr = "shoulder_lift.pos", "elbow_flex.pos", "gripper.pos"   # the body
 
     # Live-tunable copies (keys change these; config holds the defaults).
     k_pan, k_tilt = C.K_PAN, C.K_TILT
@@ -165,7 +167,7 @@ def main():
     # ---- arm ----
     robot = None
     if dry_run:
-        start = {pan: 0.0, tilt: 0.0, roll: 0.0}
+        start = {pan: 0.0, tilt: 0.0, roll: 0.0, sh: 0.0, el: 0.0, gr: 0.0}
         print("[DRY-RUN] No arm. Printing commanded angles; nothing moves.")
     else:
         from lerobot.robots.so_follower import SO101Follower, SO101FollowerConfig
@@ -205,6 +207,10 @@ def main():
     limits = {pan: C.PAN_LIMIT_DEG, tilt: C.TILT_LIMIT_DEG}
     if C.ENABLE_ROLL:
         limits[roll] = C.ROLL_LIMIT_DEG
+    if C.ENABLE_BODY:
+        limits[sh] = C.BODY_LIMIT_DEG
+        limits[el] = C.BODY_LIMIT_DEG
+        limits[gr] = C.MOUTH_LIMIT_DEG
 
     # One-Euro filters on the raw signals -- jitter dies here, at the source.
     fu = OneEuro(C.FOLLOW_HZ, C.FILTER_MIN_CUTOFF, C.FILTER_BETA)
@@ -219,12 +225,15 @@ def main():
     frozen = False
     last_uv = None
     err_x = err_y = roll_deg = 0.0
+    lean = 0.0
+    size_baseline = None      # slow-adapting hand-size reference (distance lean)
+    t_start = time.time()
 
     # Slew caps are PER JOINT: only the base rings (it swings the whole arm's mass).
     # The wrist joints move almost nothing and can snap -- capping them at the base's
     # limit is what made the robot feel lazy.
     caps = {}
-    for key in (pan, tilt, roll):
+    for key in (pan, tilt, roll, sh, el, gr):
         name = key.rsplit(".", 1)[0]
         caps[key] = C.MAX_DEG_PER_SEC.get(name, C.DEFAULT_MAX_DEG_PER_SEC) / C.FOLLOW_HZ
 
@@ -280,33 +289,67 @@ def main():
                     if mood == "perk":          # eager overshoot on re-acquire
                         target[tilt] -= C.PERK_DEG
 
+                    if C.ENABLE_BODY:
+                        # Distance lean: hand size vs a slow-adapting baseline. Push
+                        # your hand closer -> it leans in; then gently habituates.
+                        size = math.hypot((lms[9][0] - lms[0][0]) * w,
+                                          (lms[9][1] - lms[0][1]) * h)
+                        if size_baseline is None:
+                            size_baseline = size
+                        size_baseline += C.LEAN_BASELINE_ADAPT * (size - size_baseline)
+                        lean = clamp(C.LEAN_GAIN_DEG * (size / size_baseline - 1.0),
+                                     -C.LEAN_MAX_DEG, C.LEAN_MAX_DEG)
+                        target[sh] = start[sh] + lean
+                        target[el] = start[el] - C.LEAN_ELBOW_RATIO * lean
+                        mouth = C.MOUTH_PERK_DEG if mood == "perk" else C.MOUTH_TRACK_DEG
+                        target[gr] = start[gr] + C.MOUTH_SIGN * mouth
+
                 cv2.circle(frame, (int(u_raw), int(v_raw)), 5, (0, 140, 255), 1)  # raw
                 cv2.circle(frame, (int(u), int(v)), 10, (0, 255, 255), -1)        # filtered
             else:
                 last_uv = None
                 fu.reset(); fv.reset(); fr.reset()
                 if not frozen and mood == "droop":
-                    # sad: head sags, faces forward, moves slow and heavy
+                    # sad: the WHOLE BODY deflates -- head sags, shoulder settles back,
+                    # elbow folds, mouth closes. Slow + heavy via DROOP_SMOOTHING.
                     target[tilt] = start[tilt] + C.DROOP_DEG
                     target[pan] = start[pan]
+                    if C.ENABLE_BODY:
+                        target[sh] = start[sh] + C.DROOP_SHOULDER_DEG
+                        target[el] = start[el] + C.DROOP_ELBOW_DEG
+                        target[gr] = start[gr] + C.MOUTH_SIGN * C.MOUTH_DROOP_DEG
 
             if not frozen:
-                keys = [pan, tilt] + ([roll] if C.ENABLE_ROLL else [])
+                keys = [pan, tilt] + ([roll] if C.ENABLE_ROLL else []) \
+                    + ([sh, el, gr] if C.ENABLE_BODY else [])
                 for k in keys:
                     step = smoothing * (target[k] - cmd[k])
                     # per-joint slew cap: keeps the heavy base from ringing while letting
                     # the near-massless wrist joints actually snap
                     cmd[k] += clamp(step, -caps[k], caps[k])
 
-            # [safety gate] clamp the final summed pose, right before the servos
-            clamp_pose(cmd, start, limits)
+            # Counter-phase breathing rides ON TOP of the smoothed pose (post-smoothing,
+            # or the filter would flatten the oscillation): shoulder + / elbow - by the
+            # same amount -> the body breathes while the head stays level.
+            out = dict(cmd)
+            if C.ENABLE_BODY and not frozen:
+                bf = {"droop": 0.5, "perk": 1.6}.get(mood, 1.0)   # sad = slow, excited = quick
+                ba = {"droop": 0.6, "perk": 1.3}.get(mood, 1.0)   # ... and shallow / deep
+                breath = C.BREATH_DEG * ba * math.sin(
+                    2 * math.pi * C.BREATH_FREQ_HZ * bf * (time.time() - t_start))
+                out[sh] += breath
+                out[el] -= C.BREATH_ELBOW_RATIO * breath
+
+            # [safety gate] clamp the FINAL summed pose (follow + body + breath),
+            # right before the servos
+            clamp_pose(out, start, limits)
 
             if robot is None:
                 if not frozen:
-                    print(f"[{mood:5s}] pan {cmd[pan]:7.2f}  tilt {cmd[tilt]:7.2f}  "
-                          f"roll {cmd[roll]:7.2f}", end="\r")
+                    print(f"[{mood:5s}] pan {out[pan]:7.2f}  tilt {out[tilt]:7.2f}  "
+                          f"roll {out[roll]:7.2f}  lean {lean:+5.1f}", end="\r")
             else:
-                robot.send_action(cmd)
+                robot.send_action(out)
 
             # ---- HUD ----
             cv2.drawMarker(frame, (w // 2, h // 2), (255, 255, 255), cv2.MARKER_CROSS, 20, 1)
@@ -314,7 +357,7 @@ def main():
             for i, line in enumerate([
                 f"[{mood}]  hands:{len(hands)}  err=({err_x:+6.0f},{err_y:+6.0f})px",
                 f"pan {cmd[pan]:+7.2f}  tilt {cmd[tilt]:+7.2f}  roll {cmd[roll]:+7.2f}",
-                f"K={k_pan:.3f}  sign=({sign_pan:+d},{sign_tilt:+d})  handroll={roll_deg:+.0f}",
+                f"K={k_pan:.3f}  sign=({sign_pan:+d},{sign_tilt:+d})  handroll={roll_deg:+.0f}  lean={lean:+5.1f}",
             ]):
                 cv2.putText(frame, line, (10, 30 + i * 28),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, colour, 2)

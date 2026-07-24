@@ -82,6 +82,39 @@ SIGN_ROLL   = -1                     # -1: the gripper FACES you, so it must mir
                                      # roll (and the frame is mirrored too). Flip if wrong.
 ROLL_LIMIT_DEG = 90.0
 
+# ── Full body (soul.md "full-body vocabulary") ─────────────────────────────
+# Uses ALL six motors during FOLLOW instead of just the head. Standard SO-101
+# duty swings these joints 60-90 deg continuously; the only real hazard is a LONG
+# STATIC HOLD at full horizontal extension, which none of these produce.
+ENABLE_BODY = True
+
+# Distance lean: hand size on screen (wrist<->middle-base px) is a free depth
+# proxy. We compare it against a SLOW-ADAPTING baseline, so pushing your hand
+# closer produces a lean that gently habituates back — organic, zero calibration.
+LEAN_GAIN_DEG   = 60.0     # deg of shoulder lean per (size/baseline - 1)
+LEAN_MAX_DEG    = 25.0     # cap on the lean itself
+LEAN_ELBOW_RATIO = 0.7     # elbow extends opposite the shoulder by this fraction
+LEAN_BASELINE_ADAPT = 0.005  # per-frame baseline adaptation (smaller = leans longer)
+
+# Counter-phase breathing: body rises/falls while the head stays level.
+BREATH_DEG      = 2.0      # shoulder amplitude; elbow gets -BREATH_ELBOW_RATIO of it
+BREATH_ELBOW_RATIO = 1.0
+BREATH_FREQ_HZ  = 0.25     # ~one breath every 4 s (mood scales this)
+
+# Gripper = mouth (offsets from the startup gripper position).
+MOUTH_SIGN      = +1       # flip if "open" closes it
+MOUTH_TRACK_DEG = 6.0      # relaxed half-open while tracking
+MOUTH_PERK_DEG  = 22.0     # panting when excited
+MOUTH_DROOP_DEG = 0.0      # closed when sad
+
+# Full-body droop: the whole body deflates, not just the head.
+DROOP_SHOULDER_DEG = -14.0  # settle back
+DROOP_ELBOW_DEG    = +20.0  # fold
+
+# Safety envelope for the body joints (clamped around the startup pose).
+BODY_LIMIT_DEG  = 40.0
+MOUTH_LIMIT_DEG = 45.0
+
 # ── Personality (soul.md, rungs 1-2: it droops when it loses you) ──────────
 # The FOLLOW loop already knows when the hand appears and disappears -- that's all an
 # emotional beat needs. Mood also scales the SMOOTHING, which is where the feeling
