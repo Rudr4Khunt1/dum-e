@@ -136,6 +136,38 @@ keyframing in Blender where the puppet is the real robot. Single arm, no trainin
 
 ---
 
+## Full-body vocabulary (use ALL six motors, not just the head)
+
+FOLLOW v1 moves only pan/tilt/roll — reads as "camera gimbal". The other joints
+(shoulder_lift, elbow_flex, gripper) are the difference between gimbal and creature.
+In payoff order:
+
+1. **Distance lean** ⭐ — hand SIZE in the image (wrist↔middle-base px, One-Euro'd)
+   is a free depth proxy. Closer hand → shoulder+elbow lean/extend toward you;
+   farther → settle back to perch. The *body* participates in attention.
+2. **Counter-phase breathing** ⭐ — idle sine on shoulder_lift + elbow_flex in
+   OPPOSITE phase: body rises/falls, head stays level (chest breathing under a
+   steady gaze). Head-bob = mechanical; body-breath = alive.
+3. **Gripper = mouth** 🐶 — perk: slightly open (panting); droop: closed; "heard
+   you": quick open-close flutter (yip); idle: relaxed half-open. Lightest joint,
+   zero risk, huge character.
+4. **Eyes lead, body follows** — wrist/pan react fast (already do); add a SLOW
+   integrator on shoulder/base that re-centers the body so the wrist drifts back
+   toward neutral. Spine, not turret.
+5. **Mood = whole-body posture** — generalize head_bias → posture_bias per joint:
+   EXCITED tall (shoulder up, elbow extended), DEJECTED crouched (dropped+folded),
+   CURIOUS leaning in + wrist_roll head-cock. The droop becomes full-body deflation.
+6. **Anticipation & startle** — tiny opposite lean before a big pan swing; fast
+   incoming hand → slight recoil, then re-engage.
+
+Slots into the existing mixer: posture(mood, distance) + gaze + breathing + gestures
+→ clamp_pose → per-joint slew caps → servos.
+
+Amplitudes: standard SO-101 usage swings shoulder/elbow through 60–90° continuously
+(teleop/ACT demos), so expressive leans of **20–40°** are normal duty — no need to
+be timid. The one real rule: avoid LONG STATIC HOLDS at full horizontal extension
+(max moment arm) — that's what trips servo overload, not motion through big angles.
+
 ## Optional: sound layer
 Tie short sounds (chirps/whirs) to moods/gestures via a cheap USB speaker. High character-per-rupee.
 
