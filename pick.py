@@ -199,6 +199,21 @@ def _phase(cap, robot, state, title, hints, keymap, do_move):
             dirty = False
 
 
+def auto_pick(robot, label, x0, y0, z0, tilt, roll, t):
+    """Hands-off pick using a class's saved corrections (no phase pauses)."""
+    x, y = x0 + t["dx"], y0 + t["dy"]
+    grasp_z = z0 + C.GRASP_HEIGHT + t["dz"]
+    print(f"  auto pick ({label}): ({x:.3f},{y:+.3f})")
+    goto_xyz(robot, x, y, z0 + C.PICK_HOVER, seconds=2.0, tilt=tilt, roll=roll)
+    set_gripper(robot, t["open"])
+    goto_xyz(robot, x, y, grasp_z, seconds=1.2, tilt=tilt, roll=roll)
+    set_gripper(robot, t["close"], seconds=0.7)
+    time.sleep(0.2)
+    goto_xyz(robot, x, y, z0 + C.CARRY_HEIGHT, seconds=1.2, tilt=tilt, roll=roll)
+    print("  lifted. h = hand over | r = put back")
+    return x, y, tilt, roll
+
+
 def interactive_pick(robot, cap, label, x0, y0, z0, tilt, roll, tune):
     """The three-phase guided pick. Returns the final (x, y, tilt, roll) and saves
     this class's corrections."""
@@ -305,6 +320,7 @@ def main():
     cap = open_cam()
     robot = connect()
     carrying = None          # (x, y, z0, tilt, roll) while holding something
+    force_guided = False     # 'g' arms guided mode for the next pick (re-tune)
     try:
         while True:
             ok, frame = cap.read()
@@ -323,8 +339,12 @@ def main():
                 cv2.putText(frame, f"[{i + 1}] {label}{tuned} {conf:.2f}",
                             (int(x1), int(y1) - 8),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-            status = ("CARRYING -- h = hand over | r = put back"
-                      if carrying else "press [n] to pick | q quit  (* = tuned class)")
+            if carrying:
+                status = "CARRYING -- h = hand over | r = put back"
+            else:
+                status = "press [n] to pick | q quit  (* = tuned -> auto)"
+                if force_guided:
+                    status += "  [GUIDED armed]"
             cv2.putText(frame, status, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8,
                         (0, 255, 255) if carrying else (0, 255, 0), 2)
             cv2.imshow(WINDOW, frame)
@@ -332,6 +352,10 @@ def main():
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
                 break
+            if key == ord("g") and not carrying:
+                force_guided = not force_guided
+                print(f"guided mode for next pick: {force_guided}")
+                continue
             if carrying:
                 if key == ord("h"):
                     hand_over(robot)
@@ -353,8 +377,15 @@ def main():
                         if C.ROLL_ALIGN and ang is not None:
                             pan = math.degrees(math.atan2(y, x))
                             roll = roll_for(ang, pan, gm)
-                        fx, fy, tilt, roll = interactive_pick(
-                            robot, cap, label, x, y, z0, tilt, roll, tune)
+                        use_auto = (C.AUTO_WHEN_TUNED and label in tune
+                                    and not force_guided)
+                        if use_auto:
+                            fx, fy, tilt, roll = auto_pick(
+                                robot, label, x, y, z0, tilt, roll, tune[label])
+                        else:
+                            fx, fy, tilt, roll = interactive_pick(
+                                robot, cap, label, x, y, z0, tilt, roll, tune)
+                        force_guided = False
                         carrying = (fx, fy, z0, tilt, roll)
                     except K.NotReachable as e:
                         print("  out of reach (even tilted):", e)

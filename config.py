@@ -142,6 +142,9 @@ GRIPPER_CLOSED = 2.0             # fallback squeeze for classes you haven't taug
 # to pick_tune.json and applied automatically next time — after a few picks of a
 # class it converges to Enter-Enter-Enter.
 PICK_TUNE_FILE = "pick_tune.json"
+AUTO_WHEN_TUNED = True           # tuned classes run hands-off (no phase pauses);
+                                 # press 'g' in the pick window to force guided
+                                 # mode for the next pick (re-tune a class)
 JOG_XY   = 0.006                 # meters per jog key press (i/k/j/l)
 JOG_Z    = 0.004                 # meters per d/u press
 JOG_GRIP = 3.0                   # gripper units per o/c press
