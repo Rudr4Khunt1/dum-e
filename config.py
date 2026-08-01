@@ -137,11 +137,14 @@ FLAT_CLASSES = {"scissors", "remote", "cell phone", "book", "mouse", "banana",
 GRIPPER_OPEN   = 40.0            # wide open, ready to descend around the object
 GRIPPER_CLOSED = 2.0             # fallback squeeze for classes you haven't taught
 
-# Taught grips (teach-by-demo, per object class):  python pick.py --teach banana
-# You pose the jaws to JUST TOUCHING; we grip GRIP_SQUEEZE tighter than that.
-USE_TAUGHT_GRIPS = False         # gated off for now — everything uses GRIPPER_CLOSED
-GRIPS_FILE   = "grips.json"
-GRIP_SQUEEZE = 4.0               # raise if objects slip, lower if they crush
+# Interactive pick tuning (human-in-the-loop): every pick pauses at HOVER,
+# DESCEND and CLOSE so you can jog it exact; your corrections are saved PER CLASS
+# to pick_tune.json and applied automatically next time — after a few picks of a
+# class it converges to Enter-Enter-Enter.
+PICK_TUNE_FILE = "pick_tune.json"
+JOG_XY   = 0.006                 # meters per jog key press (i/k/j/l)
+JOG_Z    = 0.004                 # meters per d/u press
+JOG_GRIP = 3.0                   # gripper units per o/c press
 
 # ── Jaw-gap alignment ("put the mouth over the dot") ───────────────────────
 # The IK places the fingertip TIP at the target, but the JAW GAP (where the jaws
@@ -154,9 +157,10 @@ GRASP_RADIAL_NUDGE = 0.0         # manual trim (m, + = away from the base) if th
                                  # mouth still lands short/long at VERTICAL picks
 
 # Tilted-grasp fallback: "NotReachable" usually means the VERTICAL-gripper
-# constraint's limit, not the arm's. For far targets we retry with the gripper
-# pitched outward — same closed-form IK, meaningfully longer reach.
-TILT_STEPS = (0.0, 15.0, 30.0, 45.0)   # tried in order; first reachable wins
+# constraint's limit, not the arm's. CLAW-MACHINE MODE: vertical only — every
+# pick comes straight down (reliable), far targets get refused. Add tilts back
+# (0.0, 15.0, 30.0) to trade reliability for ~5 cm more reach.
+TILT_STEPS = (0.0,)
 
 # Jaw alignment: rotate wrist_roll so the jaws close ACROSS an elongated object's
 # local axis (banana, marker, scissors). One-time physical tune:

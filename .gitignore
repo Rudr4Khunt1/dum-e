@@ -33,4 +33,4 @@ homography.npz
 
 # YOLO weights (auto-downloaded)
 *.pt
-grips.json
+pick_tune.json

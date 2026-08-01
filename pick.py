@@ -1,25 +1,26 @@
 """
-pick.py — Stage 3: Dum-E fetches. Detect -> pick -> deliver (keypress v1; voice later).
+pick.py — Stage 3: Dum-E fetches, with human-in-the-loop tuning.
 
-    YOLO-seg spots objects -> you press the NUMBER on the one you want -> mask math
-    picks the true grasp point + jaw angle -> homography H -> table (x, y) -> IK
-    (vertical, or auto-tilted for far targets): hover, open, descend, close, lift.
-        h  = hand it over     r  = put it back     q  = quit (parks)
+    YOLO-seg spots objects -> press the NUMBER of the one you want -> the pick runs
+    as THREE PAUSED PHASES you can jog to exact, and your corrections are SAVED per
+    object class (pick_tune.json) and applied automatically on the next pick of
+    that class. First pick of a class is guided; a few picks later it converges to
+    Enter-Enter-Enter.
 
-GRASP-POINT MATH (why not just "the centroid"):
-  * elongated flat objects (banana!): a crescent's centroid lies OFF the body, in
-    the hollow of the curve — aiming there misses. We take the mask points near the
-    MIDDLE of the long axis and use their mean: on-body, mid-arc. The local axis
-    there also gives the jaw angle, so wrist_roll turns the jaws ACROSS the object.
-  * roundish flat objects: mask centroid (it's on the body for convex shapes).
-  * tall objects: bottom band of the mask = the table footprint (a tall object's
-    centroid projects past its base from an angled camera).
+PHASES (after pressing a number)
+  1. HOVER   arm hovers over where it thinks the dot is, jaws OPEN.
+             jog XY:  i/k = away from / toward the base   j/l = arm's left/right
+             o/c = jaws more open / more closed            ENTER = accept
+  2. DESCEND arm steps down; bring the open jaws around the object until it's at
+             grasp depth (near the table).  d/u = down/up, XY jog still live.
+             ENTER = close the jaws
+  3. CLOSE   c/o tightens/loosens in small steps until the grip looks solid.
+             ENTER = accept -> lift.   Then:  h = hand over   r = put back
+  q at any phase = abort this pick (lifts back to hover).
 
-TEACH A GRIP (per object class):     python pick.py --teach banana
-  Torque releases; you pose the jaws around the object at the spot the robot will
-  actually grab (gripper roughly down, jaws across the width), closed to JUST
-  TOUCHING, then Enter. We grip GRIP_SQUEEZE tighter than what you set. Saved to
-  grips.json; classes without a taught grip fall back to GRIPPER_CLOSED.
+WHAT GETS SAVED per class: {dx, dy, dz, open, close} — your XY correction, grasp
+depth, and the REAL open/close values for your build (the config GRIPPER_* numbers
+are only first-run defaults).
 
 PREREQS: ik_test capture/points/touch + calibrate_homography (validate OK).
 """
@@ -34,11 +35,16 @@ import numpy as np
 
 import config as C
 import kinematics as K
-from arm_utils import connect, goto_xyz, pose_now, ramp_to, safe_park
+from arm_utils import connect, goto_xyz, ramp_to, safe_park
 from calibrate_homography import H_PATH, open_cam, pixel_to_xy, table_z
 
-GRIPS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), C.GRIPS_FILE)
+TUNE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), C.PICK_TUNE_FILE)
 ELONGATED_MIN = 1.8       # long/short axis ratio above which an object is "long"
+WINDOW = "Dum-E pick"
+
+
+class PickAborted(Exception):
+    pass
 
 
 def load_H():
@@ -47,14 +53,19 @@ def load_H():
     return np.load(H_PATH)["H"]
 
 
-def load_grips():
-    if os.path.exists(GRIPS_PATH):
-        with open(GRIPS_PATH) as f:
+def load_tune():
+    if os.path.exists(TUNE_PATH):
+        with open(TUNE_PATH) as f:
             return json.load(f)
     return {}
 
 
-def set_gripper(robot, pos, seconds=0.6):
+def save_tune(tune):
+    with open(TUNE_PATH, "w") as f:
+        json.dump(tune, f, indent=2)
+
+
+def set_gripper(robot, pos, seconds=0.5):
     ramp_to(robot, {"gripper.pos": pos}, seconds)
 
 
@@ -101,8 +112,7 @@ def grasp_geometry(label, poly, bbox, H):
         m = cv2.moments(pts)
         aim = (m["m10"] / m["m00"], m["m01"] / m["m00"]) if m["m00"] > 1e-6 \
             else (float(mean[0]), float(mean[1]))
-        # concave shapes (deep crescents, horseshoes) put the centroid OFF the
-        # body even when not "elongated" — verify, and fall back to the band.
+        # concave shapes (deep crescents) put the centroid OFF the body — verify.
         if on_body(aim):
             return aim, None
         aim = band_aim()
@@ -113,7 +123,6 @@ def grasp_geometry(label, poly, bbox, H):
         d = np.linalg.norm(pts - np.asarray(aim), axis=1)
         aim = (float(pts[d.argmin(), 0]), float(pts[d.argmin(), 1]))
 
-    # local axis in ROBOT frame: map two nearby pixels along e1 through H
     ax0 = pixel_to_xy(H, aim[0], aim[1])
     ax1 = pixel_to_xy(H, aim[0] + 50 * e1[0], aim[1] + 50 * e1[1])
     world_angle = math.degrees(math.atan2(ax1[1] - ax0[1], ax1[0] - ax0[0]))
@@ -121,16 +130,24 @@ def grasp_geometry(label, poly, bbox, H):
 
 
 def roll_for(world_angle, pan_deg, gm):
-    """wrist_roll command that puts the jaws ACROSS the object's long axis.
-    Jaw orientation is mod-180 (the jaws are symmetric), so we take the nearest
-    equivalent and clamp travel. See config ROLL_JAW_REF_DEG / ROLL_ALIGN_SIGN
-    for the one-time physical sign/reference tune."""
-    jaw_des = world_angle + 90.0                       # across the axis
+    """wrist_roll command that puts the jaws ACROSS the object's long axis (mod-180
+    nearest equivalent, clamped). See config ROLL_JAW_REF_DEG / ROLL_ALIGN_SIGN."""
+    jaw_des = world_angle + 90.0
     raw = jaw_des - pan_deg - C.ROLL_JAW_REF_DEG
-    raw = (raw + 90.0) % 180.0 - 90.0                  # nearest mod-180 equivalent
+    raw = (raw + 90.0) % 180.0 - 90.0
     off = gm["wrist_roll"]["offset"]
     cmd = off + C.ROLL_ALIGN_SIGN * raw
     return max(off - C.ROLL_MAX_DEG, min(off + C.ROLL_MAX_DEG, cmd))
+
+
+def jaw_gap_target(x, y, tilt):
+    """Shift the commanded point outward so the JAW GAP — not the fingertip tip —
+    lands on the aim point (at tilt t the gap sits h*tan(t) radially short)."""
+    shift = C.JAW_CONTACT_H * math.tan(math.radians(tilt)) + C.GRASP_RADIAL_NUDGE
+    r = math.hypot(x, y)
+    if r < 1e-6 or shift == 0.0:
+        return x, y
+    return x + shift * x / r, y + shift * y / r
 
 
 # ────────────────────────── detection ──────────────────────────
@@ -151,29 +168,109 @@ def detect(model, frame, H):
     return out
 
 
-# ────────────────────────── actions ──────────────────────────
+# ────────────────────────── interactive phases ──────────────────────────
 
-def jaw_gap_target(x, y, tilt):
-    """Shift the commanded point outward so the JAW GAP — not the fingertip tip —
-    lands on the aim point. At tilt t the gap sits h*tan(t) radially short of the
-    tip at object height h; plus the manual vertical-pick trim from config."""
-    shift = C.JAW_CONTACT_H * math.tan(math.radians(tilt)) + C.GRASP_RADIAL_NUDGE
-    r = math.hypot(x, y)
-    if r < 1e-6 or shift == 0.0:
-        return x, y
-    return x + shift * x / r, y + shift * y / r
+def _phase(cap, robot, state, title, hints, keymap, do_move):
+    """Shared phase loop: live camera + jog keys until ENTER. keymap maps a key to
+    a state-mutating fn; do_move re-sends the arm after any jog. q aborts."""
+    dirty = False
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            raise SystemExit("camera feed died")
+        lines = [title] + hints + [
+            f"x {state['x']:+.3f}  y {state['y']:+.3f}  z +{state['z'] - state['z0']:.3f}"
+            f"  grip {state['grip']:.0f}",
+        ]
+        for i, line in enumerate(lines):
+            cv2.putText(frame, line, (10, 30 + i * 26),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 255), 2)
+        cv2.imshow(WINDOW, frame)
+        key = cv2.waitKey(1) & 0xFF
+        if key in (13, 10):                     # ENTER
+            return
+        if key == ord("q"):
+            raise PickAborted
+        if key in keymap:
+            keymap[key]()
+            dirty = True
+        elif dirty:
+            do_move()
+            dirty = False
 
 
-def execute_pick(robot, x, y, z0, grip_close, tilt, roll):
-    print(f"  pick at ({x:.3f}, {y:+.3f})  tilt={tilt:.0f}"
-          + (f"  roll={roll:.0f}" if roll is not None else ""))
-    goto_xyz(robot, x, y, z0 + C.PICK_HOVER, seconds=2.0, tilt=tilt, roll=roll)
-    set_gripper(robot, C.GRIPPER_OPEN)
-    goto_xyz(robot, x, y, z0 + C.GRASP_HEIGHT, seconds=1.2, tilt=tilt, roll=roll)
-    set_gripper(robot, grip_close, seconds=0.8)
-    time.sleep(0.2)
-    goto_xyz(robot, x, y, z0 + C.CARRY_HEIGHT, seconds=1.2, tilt=tilt, roll=roll)
+def interactive_pick(robot, cap, label, x0, y0, z0, tilt, roll, tune):
+    """The three-phase guided pick. Returns the final (x, y, tilt, roll) and saves
+    this class's corrections."""
+    t = tune.get(label, {})
+    state = {
+        "x": x0 + t.get("dx", 0.0),
+        "y": y0 + t.get("dy", 0.0),
+        "z": z0 + C.PICK_HOVER,
+        "z0": z0,
+        "grip": t.get("open", C.GRIPPER_OPEN),
+    }
+    grasp_z = z0 + C.GRASP_HEIGHT + t.get("dz", 0.0)
+
+    def move():
+        goto_xyz(robot, state["x"], state["y"], state["z"], seconds=0.35,
+                 tilt=tilt, roll=roll)
+
+    def grip():
+        set_gripper(robot, state["grip"], seconds=0.25)
+
+    jog = {
+        ord("i"): lambda: state.update(x=state["x"] + C.JOG_XY),
+        ord("k"): lambda: state.update(x=state["x"] - C.JOG_XY),
+        ord("j"): lambda: state.update(y=state["y"] + C.JOG_XY),
+        ord("l"): lambda: state.update(y=state["y"] - C.JOG_XY),
+    }
+
+    # PHASE 1 — hover, jaws open, align XY over the object
+    goto_xyz(robot, state["x"], state["y"], state["z"], seconds=2.0, tilt=tilt, roll=roll)
+    grip()
+    _phase(cap, robot, state, f"HOVER over the {label} — align, then ENTER",
+           ["i/k = away/toward base   j/l = left/right   o/c = jaws open/close"],
+           {**jog,
+            ord("o"): lambda: state.update(grip=state["grip"] + C.JOG_GRIP),
+            ord("c"): lambda: state.update(grip=state["grip"] - C.JOG_GRIP)},
+           lambda: (move(), grip()))
+
+    # PHASE 2 — descend with open jaws to grasp depth
+    state["z"] = grasp_z
+    move()
+    _phase(cap, robot, state, "DESCEND — jaws around the object, then ENTER to close",
+           ["d/u = down/up   i/k/j/l = XY   (get the jaws straddling it)"],
+           {**jog,
+            ord("d"): lambda: state.update(z=state["z"] - C.JOG_Z),
+            ord("u"): lambda: state.update(z=state["z"] + C.JOG_Z)},
+           move)
+    open_val = state["grip"]
+
+    # PHASE 3 — close until solid
+    state["grip"] = tune.get(label, {}).get("close", C.GRIPPER_CLOSED)
+    grip()
+    _phase(cap, robot, state, "CLOSE — c = tighter, o = looser, ENTER = lift",
+           [],
+           {ord("c"): lambda: state.update(grip=state["grip"] - C.JOG_GRIP),
+            ord("o"): lambda: state.update(grip=state["grip"] + C.JOG_GRIP)},
+           grip)
+
+    # save this class's corrections
+    tune[label] = {
+        "dx": round(state["x"] - x0, 4),
+        "dy": round(state["y"] - y0, 4),
+        "dz": round(state["z"] - (z0 + C.GRASP_HEIGHT), 4),
+        "open": round(open_val, 1),
+        "close": round(state["grip"], 1),
+    }
+    save_tune(tune)
+    print(f"  saved corrections for '{label}': {tune[label]}")
+
+    goto_xyz(robot, state["x"], state["y"], z0 + C.CARRY_HEIGHT, seconds=1.2,
+             tilt=tilt, roll=roll)
     print("  lifted. h = hand over | r = put back")
+    return state["x"], state["y"], tilt, roll
 
 
 def hand_over(robot):
@@ -195,54 +292,19 @@ def put_back(robot, x, y, z0, tilt, roll):
     print("  returned.")
 
 
-def teach_grip(robot, label):
-    print(
-        f"\n== TEACH GRIP: {label} ==\n"
-        "Torque is OFF. Pose the jaws around the object at the spot the robot will\n"
-        "actually grab it (gripper roughly pointing down, jaws across the WIDTH,\n"
-        "near table height), closed to JUST TOUCHING — no squeeze. Then Enter.\n"
-    )
-    robot.bus.disable_torque()
-    input("pose it, hold, then Enter... ")
-    pose = pose_now(robot)
-    robot.bus.enable_torque()
-    robot.send_action(pose)                    # hold so nothing collapses
-    g0 = pose["gripper.pos"]
-    close_dir = 1.0 if C.GRIPPER_CLOSED > C.GRIPPER_OPEN else -1.0
-    target = g0 + close_dir * C.GRIP_SQUEEZE
-    grips = load_grips()
-    grips[label] = target
-    with open(GRIPS_PATH, "w") as f:
-        json.dump(grips, f, indent=2)
-    print(f"touch = {g0:.1f}  ->  grip = {target:.1f}  (squeeze {C.GRIP_SQUEEZE})")
-    print(f"saved {GRIPS_PATH}: {grips}")
-
-
 # ────────────────────────── main ──────────────────────────
 
 def main():
-    ap = argparse.ArgumentParser(description="Dum-E pick")
-    ap.add_argument("--teach", metavar="LABEL",
-                    help="teach the grip width for an object class (e.g. banana)")
-    args = ap.parse_args()
-
-    if args.teach:
-        robot = connect()
-        try:
-            teach_grip(robot, args.teach)
-        finally:
-            safe_park(robot)
-        return
-
+    argparse.ArgumentParser(description="Dum-E pick (interactive)").parse_args()
     from ultralytics import YOLO
     model = YOLO(C.YOLO_MODEL)
     H = load_H()
     z0 = table_z()
     gm = K.load_geom()
-    grips = load_grips()
+    tune = load_tune()
     cap = open_cam()
     robot = connect()
-    carrying = None          # (x, y, tilt, roll) while holding something
+    carrying = None          # (x, y, z0, tilt, roll) while holding something
     try:
         while True:
             ok, frame = cap.read()
@@ -257,15 +319,15 @@ def main():
                     cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)),
                                   (0, 255, 0), 2)
                 cv2.circle(frame, (int(u), int(v)), 6, (0, 255, 255), -1)  # aim point
-                taught = "*" if label in grips else ""
-                cv2.putText(frame, f"[{i + 1}] {label}{taught} {conf:.2f}",
+                tuned = "*" if label in tune else ""
+                cv2.putText(frame, f"[{i + 1}] {label}{tuned} {conf:.2f}",
                             (int(x1), int(y1) - 8),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
             status = ("CARRYING -- h = hand over | r = put back"
-                      if carrying else "press [n] to pick | q quit  (* = taught grip)")
+                      if carrying else "press [n] to pick | q quit  (* = tuned class)")
             cv2.putText(frame, status, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8,
                         (0, 255, 255) if carrying else (0, 255, 0), 2)
-            cv2.imshow("Dum-E pick", frame)
+            cv2.imshow(WINDOW, frame)
 
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
@@ -275,7 +337,7 @@ def main():
                     hand_over(robot)
                     carrying = None
                 elif key == ord("r"):
-                    put_back(robot, *carrying, )
+                    put_back(robot, *carrying)
                     carrying = None
             elif ord("1") <= key <= ord("9"):
                 idx = key - ord("1")
@@ -283,19 +345,25 @@ def main():
                     label, _c, (u, v), _b, _p, ang = dets[idx]
                     x, y = pixel_to_xy(H, u, v)
                     print(f"[{label}] pixel ({u:.0f},{v:.0f}) -> table ({x:.3f},{y:+.3f})")
+                    tilt = 0.0
                     try:
                         _, tilt = K.ik_reach(x, y, z0 + C.GRASP_HEIGHT)
-                        x, y = jaw_gap_target(x, y, tilt)   # mouth on the dot, not the tip
+                        x, y = jaw_gap_target(x, y, tilt)
                         roll = None
                         if C.ROLL_ALIGN and ang is not None:
                             pan = math.degrees(math.atan2(y, x))
                             roll = roll_for(ang, pan, gm)
-                        grip = grips.get(label, C.GRIPPER_CLOSED) \
-                            if C.USE_TAUGHT_GRIPS else C.GRIPPER_CLOSED
-                        execute_pick(robot, x, y, z0, grip, tilt, roll)
-                        carrying = (x, y, z0, tilt, roll)
+                        fx, fy, tilt, roll = interactive_pick(
+                            robot, cap, label, x, y, z0, tilt, roll, tune)
+                        carrying = (fx, fy, z0, tilt, roll)
                     except K.NotReachable as e:
                         print("  out of reach (even tilted):", e)
+                    except PickAborted:
+                        print("  aborted — lifting clear.")
+                        try:
+                            goto_xyz(robot, x, y, z0 + C.PICK_HOVER, seconds=1.2, tilt=tilt)
+                        except K.NotReachable:
+                            pass
     except KeyboardInterrupt:
         pass
     finally:
