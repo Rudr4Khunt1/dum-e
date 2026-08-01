@@ -23,6 +23,29 @@ _REST_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), C.REST_POS
 HZ = 25
 
 
+def connect(max_step=None):
+    """Standard follower connection used by all scripts."""
+    from lerobot.robots.so_follower import SO101Follower, SO101FollowerConfig
+    robot = SO101Follower(SO101FollowerConfig(
+        port=C.PORT, id=C.ROBOT_ID, use_degrees=True,
+        max_relative_target=max_step or C.MAX_STEP_DEG))
+    print(f"Connecting on {C.PORT} ...")
+    robot.connect()
+    print("Connected.")
+    return robot
+
+
+def goto_xyz(robot, x, y, z, seconds=2.5, verbose=False):
+    """IK-move the fingertip (TCP) to (x, y, z) meters in the robot frame, gripper
+    pointing straight down. Raises kinematics.NotReachable for bad targets."""
+    import kinematics as K
+    gm = K.load_geom()
+    geom = K.ik_vertical(x, y, z)
+    if verbose:
+        print("  geom:", {k: round(v, 1) for k, v in geom.items()})
+    ramp_to(robot, K.geom_to_robot(geom, gm), seconds)
+
+
 def pose_now(robot):
     return {k: v for k, v in robot.get_observation().items() if k.endswith(".pos")}
 

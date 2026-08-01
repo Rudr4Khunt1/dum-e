@@ -30,24 +30,9 @@ Ctrl-C safe: parks low and releases torque.
 import sys
 import time
 
-from lerobot.robots.so_follower import SO101Follower, SO101FollowerConfig
-
-import config as C
+import config as C  # noqa: F401  (kept for knob access in future modes)
 import kinematics as K
-from arm_utils import pose_now, ramp_to, safe_park
-
-HZ = 25
-
-
-def connect():
-    robot = SO101Follower(SO101FollowerConfig(
-        port=C.PORT, id=C.ROBOT_ID, use_degrees=True,
-        max_relative_target=C.MAX_STEP_DEG,
-    ))
-    print(f"Connecting on {C.PORT} ...")
-    robot.connect()
-    print("Connected.")
-    return robot
+from arm_utils import connect, goto_xyz as _goto, pose_now, ramp_to, safe_park
 
 
 def park(robot):
@@ -65,11 +50,7 @@ def park(robot):
 
 
 def goto_xyz(robot, x, y, z, seconds=2.5):
-    gm = K.load_geom()
-    geom = K.ik_vertical(x, y, z)
-    print("  geom:", {k: round(v, 1) for k, v in geom.items()})
-    target = K.geom_to_robot(geom, gm)
-    ramp_to(robot, target, seconds)
+    _goto(robot, x, y, z, seconds, verbose=True)
 
 
 # ────────────────────────── modes ──────────────────────────
