@@ -153,6 +153,17 @@ def detect(model, frame, H):
 
 # ────────────────────────── actions ──────────────────────────
 
+def jaw_gap_target(x, y, tilt):
+    """Shift the commanded point outward so the JAW GAP — not the fingertip tip —
+    lands on the aim point. At tilt t the gap sits h*tan(t) radially short of the
+    tip at object height h; plus the manual vertical-pick trim from config."""
+    shift = C.JAW_CONTACT_H * math.tan(math.radians(tilt)) + C.GRASP_RADIAL_NUDGE
+    r = math.hypot(x, y)
+    if r < 1e-6 or shift == 0.0:
+        return x, y
+    return x + shift * x / r, y + shift * y / r
+
+
 def execute_pick(robot, x, y, z0, grip_close, tilt, roll):
     print(f"  pick at ({x:.3f}, {y:+.3f})  tilt={tilt:.0f}"
           + (f"  roll={roll:.0f}" if roll is not None else ""))
@@ -274,11 +285,13 @@ def main():
                     print(f"[{label}] pixel ({u:.0f},{v:.0f}) -> table ({x:.3f},{y:+.3f})")
                     try:
                         _, tilt = K.ik_reach(x, y, z0 + C.GRASP_HEIGHT)
+                        x, y = jaw_gap_target(x, y, tilt)   # mouth on the dot, not the tip
                         roll = None
                         if C.ROLL_ALIGN and ang is not None:
                             pan = math.degrees(math.atan2(y, x))
                             roll = roll_for(ang, pan, gm)
-                        grip = grips.get(label, C.GRIPPER_CLOSED)
+                        grip = grips.get(label, C.GRIPPER_CLOSED) \
+                            if C.USE_TAUGHT_GRIPS else C.GRIPPER_CLOSED
                         execute_pick(robot, x, y, z0, grip, tilt, roll)
                         carrying = (x, y, z0, tilt, roll)
                     except K.NotReachable as e:

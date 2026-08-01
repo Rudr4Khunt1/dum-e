@@ -139,8 +139,19 @@ GRIPPER_CLOSED = 2.0             # fallback squeeze for classes you haven't taug
 
 # Taught grips (teach-by-demo, per object class):  python pick.py --teach banana
 # You pose the jaws to JUST TOUCHING; we grip GRIP_SQUEEZE tighter than that.
+USE_TAUGHT_GRIPS = False         # gated off for now — everything uses GRIPPER_CLOSED
 GRIPS_FILE   = "grips.json"
 GRIP_SQUEEZE = 4.0               # raise if objects slip, lower if they crush
+
+# ── Jaw-gap alignment ("put the mouth over the dot") ───────────────────────
+# The IK places the fingertip TIP at the target, but the JAW GAP (where the jaws
+# meet) sits up along the gripper axis. With a TILTED approach that gap lands
+# radially SHORT of the tip by h*tan(tilt) at object height h — the mouth stops
+# behind the object and the opening jaw shoves it. We push the commanded point
+# outward by exactly that much, so the MOUTH (not the tip) lands on the dot.
+JAW_CONTACT_H = 0.02             # object height where the jaws meet it (m)
+GRASP_RADIAL_NUDGE = 0.0         # manual trim (m, + = away from the base) if the
+                                 # mouth still lands short/long at VERTICAL picks
 
 # Tilted-grasp fallback: "NotReachable" usually means the VERTICAL-gripper
 # constraint's limit, not the arm's. For far targets we retry with the gripper
