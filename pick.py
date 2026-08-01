@@ -35,7 +35,7 @@ import numpy as np
 
 import config as C
 import kinematics as K
-from arm_utils import connect, goto_xyz, ramp_to, safe_park
+from arm_utils import connect, goto_xyz, load_rest_pose, ramp_to, safe_park
 from calibrate_homography import H_PATH, open_cam, pixel_to_xy, table_z
 from hand_tracker import HandTracker, palm_center
 
@@ -367,6 +367,18 @@ def hand_over_to_palm(robot, cap, tracker, H, z0):
         hand_over(robot)
 
 
+def reset_arm(robot):
+    """Recovery after a failed grip: back to the rest pose (torque stays on) and
+    cycle the gripper open -> fully closed (the cycle un-sticks a tight gripper)."""
+    print("  reset: back to rest, closing the gripper.")
+    rest = load_rest_pose()
+    if rest:
+        ramp_to(robot, rest, seconds=2.0)
+    set_gripper(robot, C.GRIPPER_OPEN, seconds=0.4)
+    set_gripper(robot, C.GRIPPER_CLOSED, seconds=0.7)
+    print("  ready.")
+
+
 def put_back(robot, x, y, z0, tilt, roll):
     goto_xyz(robot, x, y, z0 + C.PICK_HOVER, seconds=1.6, tilt=tilt, roll=roll)
     goto_xyz(robot, x, y, z0 + C.GRASP_HEIGHT + 0.004, seconds=1.2, tilt=tilt, roll=roll)
@@ -412,9 +424,9 @@ def main():
                             (int(x1), int(y1) - 8),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
             if carrying:
-                status = "CARRYING -- h = hand over | r = put back"
+                status = "CARRYING -- h = hand over | r = put back | x = reset (failed grip)"
             else:
-                status = "press [n] to pick | q quit  (* = tuned -> auto)"
+                status = "press [n] to pick | x reset | q quit  (* = tuned -> auto)"
                 if force_guided:
                     status += "  [GUIDED armed]"
             cv2.putText(frame, status, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8,
@@ -427,6 +439,10 @@ def main():
             if key == ord("g") and not carrying:
                 force_guided = not force_guided
                 print(f"guided mode for next pick: {force_guided}")
+                continue
+            if key == ord("x"):
+                reset_arm(robot)
+                carrying = None
                 continue
             if carrying:
                 if key == ord("h"):
