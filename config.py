@@ -135,7 +135,27 @@ FLAT_CLASSES = {"scissors", "remote", "cell phone", "book", "mouse", "banana",
 
 # Gripper positions (gripper.pos units) — TUNE on your build:
 GRIPPER_OPEN   = 40.0            # wide open, ready to descend around the object
-GRIPPER_CLOSED = 2.0             # squeeze; raise if it crushes, lower if it slips
+GRIPPER_CLOSED = 2.0             # fallback squeeze for classes you haven't taught
+
+# Taught grips (teach-by-demo, per object class):  python pick.py --teach banana
+# You pose the jaws to JUST TOUCHING; we grip GRIP_SQUEEZE tighter than that.
+GRIPS_FILE   = "grips.json"
+GRIP_SQUEEZE = 4.0               # raise if objects slip, lower if they crush
+
+# Tilted-grasp fallback: "NotReachable" usually means the VERTICAL-gripper
+# constraint's limit, not the arm's. For far targets we retry with the gripper
+# pitched outward — same closed-form IK, meaningfully longer reach.
+TILT_STEPS = (0.0, 15.0, 30.0, 45.0)   # tried in order; first reachable wins
+
+# Jaw alignment: rotate wrist_roll so the jaws close ACROSS an elongated object's
+# local axis (banana, marker, scissors). One-time physical tune:
+#   place a marker pointing straight away from the arm (+x) and run a pick --
+#   jaws should straddle it. Parallel instead? set ROLL_JAW_REF_DEG = 90.
+#   Rotates the wrong way as you rotate the object? flip ROLL_ALIGN_SIGN.
+ROLL_ALIGN = True
+ROLL_JAW_REF_DEG = 0.0
+ROLL_ALIGN_SIGN = +1
+ROLL_MAX_DEG = 80.0              # max roll travel from the captured reference
 
 # Heights (meters above the calibrated table_z):
 PICK_HOVER   = 0.06              # travel/approach height

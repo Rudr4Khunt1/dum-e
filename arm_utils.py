@@ -35,15 +35,26 @@ def connect(max_step=None):
     return robot
 
 
-def goto_xyz(robot, x, y, z, seconds=2.5, verbose=False):
-    """IK-move the fingertip (TCP) to (x, y, z) meters in the robot frame, gripper
-    pointing straight down. Raises kinematics.NotReachable for bad targets."""
+def goto_xyz(robot, x, y, z, seconds=2.5, verbose=False, tilt=None, roll=None):
+    """IK-move the fingertip (TCP) to (x, y, z) meters in the robot frame.
+    tilt: None = auto (vertical first, then the tilt ladder for far targets);
+          a number = exactly that gripper pitch from vertical.
+    roll: override wrist_roll (jaw orientation); None = the captured reference.
+    Raises kinematics.NotReachable for bad targets."""
     import kinematics as K
     gm = K.load_geom()
-    geom = K.ik_vertical(x, y, z)
+    if tilt is None:
+        geom, tilt = K.ik_reach(x, y, z)
+        if tilt and verbose:
+            print(f"  (tilted grasp: {tilt:.0f} deg)")
+    else:
+        geom = K.ik_vertical(x, y, z, tilt)
     if verbose:
         print("  geom:", {k: round(v, 1) for k, v in geom.items()})
-    ramp_to(robot, K.geom_to_robot(geom, gm), seconds)
+    target = K.geom_to_robot(geom, gm)
+    if roll is not None:
+        target["wrist_roll.pos"] = roll
+    ramp_to(robot, target, seconds)
 
 
 def pose_now(robot):

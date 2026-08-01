@@ -81,8 +81,8 @@ def calibrate(robot, cap):
         x, y = pts[i]
         print(f"[{i + 1}/{len(pts)}] fingertip -> ({x:.2f}, {y:+.2f})")
         try:
-            goto_xyz(robot, x, y, z0 + HOVER, seconds=2.0)
-            goto_xyz(robot, x, y, z0 + GRAZE, seconds=1.2)
+            goto_xyz(robot, x, y, z0 + HOVER, seconds=2.0, tilt=0)
+            goto_xyz(robot, x, y, z0 + GRAZE, seconds=1.2, tilt=0)
         except K.NotReachable as e:
             print("  skipped (unreachable):", e)
             i += 1
@@ -113,7 +113,7 @@ def calibrate(robot, cap):
             pixels.append((u, v))
             table.append((x, y))
             print(f"  recorded pixel ({u},{v}) <-> table ({x:.2f},{y:+.2f})")
-        goto_xyz(robot, x, y, z0 + HOVER, seconds=1.2)
+        goto_xyz(robot, x, y, z0 + HOVER, seconds=1.2, tilt=0)
         if action != "redo":
             i += 1
 
@@ -165,16 +165,16 @@ def validate(robot, cap):
             x, y = pixel_to_xy(H, u, v)
             print(f"pixel ({u},{v}) -> table ({x:.3f}, {y:+.3f})", end="  ")
             try:
-                goto_xyz(robot, x, y, z0 + HOVER, seconds=1.8)
+                goto_xyz(robot, x, y, z0 + HOVER, seconds=1.8, tilt=0)
                 cur = (x, y)
                 print("[hovering]")
             except K.NotReachable as e:
                 cur = None
                 print("unreachable:", e)
         elif key == ord("t") and cur:
-            goto_xyz(robot, cur[0], cur[1], z0 + GRAZE, seconds=1.0)
+            goto_xyz(robot, cur[0], cur[1], z0 + GRAZE, seconds=1.0, tilt=0)
         elif key == ord("u") and cur:
-            goto_xyz(robot, cur[0], cur[1], z0 + HOVER, seconds=1.0)
+            goto_xyz(robot, cur[0], cur[1], z0 + HOVER, seconds=1.0, tilt=0)
         elif key == ord("q"):
             break
 

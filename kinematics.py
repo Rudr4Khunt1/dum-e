@@ -71,18 +71,23 @@ def geom_to_robot(geom_deg: dict, gm: dict) -> dict:
     return out
 
 
-def ik_vertical(x: float, y: float, z: float) -> dict:
-    """TCP at (x, y, z) meters in the robot frame, gripper pointing straight down.
+def ik_vertical(x: float, y: float, z: float, tilt_deg: float = 0.0) -> dict:
+    """TCP at (x, y, z) meters in the robot frame, gripper pointing down — or, with
+    tilt_deg > 0, pitched outward by that much from vertical. Tilting moves the
+    wrist back toward the shoulder, so far targets that fail the strict-vertical
+    constraint become reachable (the arm's real limit, not the vertical one).
     Returns geometric angles {shoulder_pan, shoulder_lift, elbow_flex, wrist_flex} deg.
     Elbow-up solution (the natural pose for reaching down at a table).
     """
     L1, L2, L3 = C.LINK_L1, C.LINK_L2, C.LINK_L3
     pan = math.degrees(math.atan2(y, x))
+    t = math.radians(tilt_deg)
 
     r = math.hypot(x, y) - C.LINK_R_OFF        # radial dist from the shoulder column
-    # wrist_flex axis sits L3 straight above the fingertip (vertical gripper)
-    dx = r
-    dz = (z + L3) - C.LINK_H0                  # relative to the shoulder pivot
+    # gripper points down-and-outward at tilt t: the wrist_flex axis sits L3 back
+    # along that direction from the fingertip
+    dx = r - L3 * math.sin(t)
+    dz = (z + L3 * math.cos(t)) - C.LINK_H0    # relative to the shoulder pivot
     D = math.hypot(dx, dz)
 
     if D > (L1 + L2) * 0.999:
@@ -101,10 +106,23 @@ def ik_vertical(x: float, y: float, z: float) -> dict:
     gamma = math.degrees(math.acos(max(-1.0, min(1.0, cos_g))))
     shoulder = psi - gamma
 
-    wrist = 180.0 - shoulder - elbow           # vertical-gripper constraint
+    # total fold from straight-up = 180 - tilt (180 = fingertip straight down)
+    wrist = (180.0 - tilt_deg) - shoulder - elbow
 
     return {"shoulder_pan": pan, "shoulder_lift": shoulder,
             "elbow_flex": elbow, "wrist_flex": wrist}
+
+
+def ik_reach(x: float, y: float, z: float):
+    """Try the configured tilt ladder (vertical first); return (geom, tilt_used).
+    Raises NotReachable only if every tilt fails."""
+    last = NotReachable(f"({x:.3f},{y:.3f},{z:.3f}) unreachable at every tilt")
+    for t in C.TILT_STEPS:
+        try:
+            return ik_vertical(x, y, z, t), t
+        except NotReachable as e:
+            last = e
+    raise last
 
 
 def fk_vertical(shoulder: float, elbow: float, pan: float) -> tuple:
