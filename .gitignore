@@ -30,3 +30,6 @@ homography.npz
 *.gif
 *.mp4
 *.mov
+
+# YOLO weights (auto-downloaded)
+*.pt

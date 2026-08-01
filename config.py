@@ -115,6 +115,28 @@ DROOP_ELBOW_DEG    = +20.0  # fold
 BODY_LIMIT_DEG  = 40.0
 MOUTH_LIMIT_DEG = 45.0
 
+# ── PICK (Stage 3: detect -> grasp -> deliver) ─────────────────────────────
+YOLO_MODEL = "yolo26n.pt"        # current Ultralytics generation (NMS-free, fast);
+                                 # auto-downloads. If detections feel weak: "yolo26s.pt"
+PICK_CONF  = 0.40                # detection confidence threshold
+# COCO classes we allow as pick targets (stock YOLO, zero training):
+PICK_CLASSES = {"cell phone", "bottle", "cup", "remote", "mouse", "book",
+                "banana", "apple", "orange", "scissors", "toothbrush",
+                "sports ball", "teddy bear"}
+
+# Gripper positions (gripper.pos units) — TUNE on your build:
+GRIPPER_OPEN   = 40.0            # wide open, ready to descend around the object
+GRIPPER_CLOSED = 2.0             # squeeze; raise if it crushes, lower if it slips
+
+# Heights (meters above the calibrated table_z):
+PICK_HOVER   = 0.06              # travel/approach height
+GRASP_HEIGHT = 0.008             # fingertip height while closing the jaws
+CARRY_HEIGHT = 0.12              # lift to this after grasping
+
+# Where it presents the object to you (robot frame, meters) — TUNE to your seat:
+HANDOVER_XYZ = (0.16, 0.10, 0.16)
+HANDOVER_PAUSE_S = 1.5           # hold at the handover pose, then open
+
 # ── Personality (soul.md, rungs 1-2: it droops when it loses you) ──────────
 # The FOLLOW loop already knows when the hand appears and disappears -- that's all an
 # emotional beat needs. Mood also scales the SMOOTHING, which is where the feeling
