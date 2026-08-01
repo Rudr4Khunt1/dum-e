@@ -300,21 +300,6 @@ def hand_over(robot):
     print("  delivered.")
 
 
-def make_pump(cap):
-    """Frame pump: keeps the window live while the arm moves (blocking ramps)."""
-    def pump():
-        if not cap.isOpened():
-            return
-        ok, frame = cap.read()
-        if not ok:
-            return
-        cv2.putText(frame, "ARM MOVING...", (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 180, 255), 2)
-        cv2.imshow(WINDOW, frame)
-        cv2.waitKey(1)
-    return pump
-
-
 def find_palm(cap, tracker, H):
     """Scan the feed for a hand; return its palm center as table (x, y), or None.
     Valid only when the palm rests ON the table (H maps the table plane).
@@ -401,8 +386,6 @@ def main():
     cap = open_cam()
     tracker = HandTracker(num_hands=1)
     robot = connect()
-    import arm_utils
-    arm_utils.FRAME_PUMP = make_pump(cap)   # feed stays live while the arm moves
     carrying = None          # (x, y, z0, tilt, roll) while holding something
     force_guided = False     # 'g' arms guided mode for the next pick (re-tune)
     try:
@@ -486,7 +469,6 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        arm_utils.FRAME_PUMP = None   # park ramps must not touch a released camera
         cap.release()
         cv2.destroyAllWindows()
         safe_park(robot)

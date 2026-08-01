@@ -22,11 +22,6 @@ import config as C
 _REST_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), C.REST_POSE_FILE)
 HZ = 25
 
-# Optional callable invoked on every ramp step. Scripts with a camera window set
-# this to keep the feed live while the arm moves (otherwise blocking ramps freeze
-# the display). None = no-op.
-FRAME_PUMP = None
-
 
 def connect(max_step=None):
     """Standard follower connection used by all scripts."""
@@ -77,8 +72,6 @@ def ramp_to(robot, target: dict, seconds=2.0, hz=HZ):
         for k, v in target.items():
             full[k] = cur[k] + a * (v - cur[k])
         robot.send_action(full)
-        if FRAME_PUMP is not None:
-            FRAME_PUMP()          # keep the camera window alive during the move
         time.sleep(1.0 / hz)
 
 
