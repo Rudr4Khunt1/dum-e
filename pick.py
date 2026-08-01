@@ -42,17 +42,46 @@ def set_gripper(robot, pos, seconds=0.6):
     ramp_to(robot, {"gripper.pos": pos}, seconds)
 
 
+def aim_point(label, poly, bbox):
+    """Where to send the gripper inside a detection.
+
+    FLAT objects: mask centroid — the real material center (a bbox bottom-center
+    lands on the near edge; even the bbox center can be the empty space between a
+    pair of scissors' handles). TALL objects: the bottom band of the mask = the
+    table footprint (the centroid of a tall object projects past its base from an
+    angled camera). Falls back to bbox math when no mask is available.
+    """
+    import numpy as np
+    x1, y1, x2, y2 = bbox
+    if poly is None or len(poly) < 3:
+        return ((x1 + x2) / 2, (y1 + y2) / 2) if label in C.FLAT_CLASSES \
+            else ((x1 + x2) / 2, y2)
+    pts = np.asarray(poly, dtype=np.float32)
+    if label in C.FLAT_CLASSES:
+        m = cv2.moments(pts)
+        if m["m00"] > 1e-6:
+            return (m["m10"] / m["m00"], m["m01"] / m["m00"])
+        return (float(pts[:, 0].mean()), float(pts[:, 1].mean()))
+    band = pts[pts[:, 1] >= y2 - 0.25 * (y2 - y1)]
+    if len(band) == 0:
+        band = pts
+    return (float(band[:, 0].mean()), float(band[:, 1].mean()))
+
+
 def detect(model, frame):
-    """Run YOLO, return [(label, conf, (u, v), bbox)] for allowed classes only,
-    where (u, v) is the bbox BOTTOM-CENTER (the object's table footprint)."""
+    """Run YOLO-seg, return [(label, conf, (u, v), bbox, poly)] for allowed classes,
+    where (u, v) is the per-shape aim point (see aim_point)."""
     res = model.predict(frame, conf=C.PICK_CONF, verbose=False)[0]
+    polys = res.masks.xy if res.masks is not None else None
     out = []
-    for b in res.boxes:
+    for i, b in enumerate(res.boxes):
         label = model.names[int(b.cls[0])]
         if label not in C.PICK_CLASSES:
             continue
         x1, y1, x2, y2 = (float(v) for v in b.xyxy[0])
-        out.append((label, float(b.conf[0]), ((x1 + x2) / 2, y2), (x1, y1, x2, y2)))
+        poly = polys[i] if polys is not None and i < len(polys) else None
+        uv = aim_point(label, poly, (x1, y1, x2, y2))
+        out.append((label, float(b.conf[0]), uv, (x1, y1, x2, y2), poly))
     return out
 
 
@@ -101,9 +130,15 @@ def main():
             if not ok:
                 break
             dets = detect(model, frame)
-            for i, (label, conf, (u, v), (x1, y1, x2, y2)) in enumerate(dets[:9]):
-                cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
-                cv2.circle(frame, (int(u), int(v)), 5, (0, 255, 255), -1)
+            for i, (label, conf, (u, v), (x1, y1, x2, y2), poly) in enumerate(dets[:9]):
+                if poly is not None and len(poly) >= 3:
+                    import numpy as np
+                    cv2.polylines(frame, [np.asarray(poly, dtype=np.int32)],
+                                  True, (0, 200, 0), 2)
+                else:
+                    cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)),
+                                  (0, 255, 0), 2)
+                cv2.circle(frame, (int(u), int(v)), 6, (0, 255, 255), -1)  # aim point
                 cv2.putText(frame, f"[{i + 1}] {label} {conf:.2f}", (int(x1), int(y1) - 8),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
             status = ("CARRYING -- h = hand over | r = put back"
@@ -125,7 +160,7 @@ def main():
             elif ord("1") <= key <= ord("9"):
                 idx = key - ord("1")
                 if idx < len(dets):
-                    label, _conf, (u, v), _bbox = dets[idx]
+                    label, _conf, (u, v), _bbox, _poly = dets[idx]
                     x, y = pixel_to_xy(H, u, v)
                     print(f"[{label}] pixel ({u:.0f},{v:.0f}) -> table ({x:.3f},{y:+.3f})")
                     try:

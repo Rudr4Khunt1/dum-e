@@ -116,13 +116,22 @@ BODY_LIMIT_DEG  = 40.0
 MOUTH_LIMIT_DEG = 45.0
 
 # ── PICK (Stage 3: detect -> grasp -> deliver) ─────────────────────────────
-YOLO_MODEL = "yolo26n.pt"        # current Ultralytics generation (NMS-free, fast);
-                                 # auto-downloads. If detections feel weak: "yolo26s.pt"
+YOLO_MODEL = "yolo26n-seg.pt"    # SEGMENTATION variant (same API, auto-downloads):
+                                 # masks give the object's true material centroid,
+                                 # not just a box. Weak detections? "yolo26s-seg.pt"
 PICK_CONF  = 0.40                # detection confidence threshold
 # COCO classes we allow as pick targets (stock YOLO, zero training):
 PICK_CLASSES = {"cell phone", "bottle", "cup", "remote", "mouse", "book",
                 "banana", "apple", "orange", "scissors", "toothbrush",
                 "sports ball", "teddy bear"}
+
+# WHERE to aim inside a detection (this is what made the scissors miss):
+#   FLAT objects (no height -> no parallax): aim at the MASK CENTROID — the bbox
+#   bottom-center lands on the object's NEAR EDGE instead.
+#   TALL objects: centroid projects past the base from an angled camera, so aim at
+#   the bottom band of the mask (the table footprint).
+FLAT_CLASSES = {"scissors", "remote", "cell phone", "book", "mouse", "banana",
+                "toothbrush", "apple", "orange"}   # everything else = tall
 
 # Gripper positions (gripper.pos units) — TUNE on your build:
 GRIPPER_OPEN   = 40.0            # wide open, ready to descend around the object
