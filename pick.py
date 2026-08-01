@@ -37,6 +37,7 @@ import config as C
 import kinematics as K
 from arm_utils import connect, goto_xyz, ramp_to, safe_park
 from calibrate_homography import H_PATH, open_cam, pixel_to_xy, table_z
+from hand_tracker import HandTracker, palm_center
 
 TUNE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), C.PICK_TUNE_FILE)
 ELONGATED_MIN = 1.8       # long/short axis ratio above which an object is "long"
@@ -289,13 +290,53 @@ def interactive_pick(robot, cap, label, x0, y0, z0, tilt, roll, tune):
 
 
 def hand_over(robot):
+    """Fixed presenting pose (fallback when no palm is found)."""
     hx, hy, hz = C.HANDOVER_XYZ
-    goto_xyz(robot, hx, hy, hz, seconds=2.0)
+    goto_xyz(robot, hx, hy, hz, seconds=2.0, tilt=C.HANDOVER_TILT)
     time.sleep(C.HANDOVER_PAUSE_S)
     set_gripper(robot, C.GRIPPER_OPEN)
     time.sleep(0.4)
-    goto_xyz(robot, hx, hy, hz + 0.04, seconds=1.0)
+    goto_xyz(robot, hx, hy, hz + 0.04, seconds=1.0, tilt=C.HANDOVER_TILT)
     print("  delivered.")
+
+
+def find_palm(cap, tracker, H):
+    """Scan the feed for a hand; return its palm center as table (x, y), or None.
+    Valid only when the palm rests ON the table (H maps the table plane)."""
+    t0 = time.time()
+    while time.time() - t0 < C.PALM_SEARCH_S:
+        ok, frame = cap.read()
+        if not ok:
+            return None
+        hands = tracker.detect(frame)
+        if hands:
+            hx, hy = palm_center(hands[0])
+            fh, fw = frame.shape[:2]
+            return pixel_to_xy(H, hx * fw, hy * fh)
+    return None
+
+
+def hand_over_to_palm(robot, cap, tracker, H, z0):
+    """Place the object ON the user's palm (palm flat on the table). Falls back to
+    the fixed presenting pose if no hand is seen or the palm is out of reach."""
+    print("  looking for your palm (flat on the table)...")
+    spot = find_palm(cap, tracker, H)
+    if spot is None:
+        print("  no hand seen -- fixed handover instead.")
+        hand_over(robot)
+        return
+    x, y = spot
+    print(f"  palm at ({x:.3f},{y:+.3f}) -- placing")
+    try:
+        goto_xyz(robot, x, y, z0 + C.CARRY_HEIGHT, seconds=1.5, tilt=0)
+        goto_xyz(robot, x, y, z0 + C.PALM_DROP_HEIGHT, seconds=1.0, tilt=0)
+        set_gripper(robot, C.GRIPPER_OPEN)
+        time.sleep(0.3)
+        goto_xyz(robot, x, y, z0 + C.CARRY_HEIGHT, seconds=1.0, tilt=0)
+        print("  placed on your palm.")
+    except K.NotReachable as e:
+        print("  palm outside the vertical zone:", e, "-- fixed handover instead.")
+        hand_over(robot)
 
 
 def put_back(robot, x, y, z0, tilt, roll):
@@ -318,6 +359,7 @@ def main():
     gm = K.load_geom()
     tune = load_tune()
     cap = open_cam()
+    tracker = HandTracker(num_hands=1)
     robot = connect()
     carrying = None          # (x, y, z0, tilt, roll) while holding something
     force_guided = False     # 'g' arms guided mode for the next pick (re-tune)
@@ -358,7 +400,7 @@ def main():
                 continue
             if carrying:
                 if key == ord("h"):
-                    hand_over(robot)
+                    hand_over_to_palm(robot, cap, tracker, H, z0)
                     carrying = None
                 elif key == ord("r"):
                     put_back(robot, *carrying)

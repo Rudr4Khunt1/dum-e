@@ -183,6 +183,17 @@ CARRY_HEIGHT = 0.12              # lift to this after grasping
 # Where it presents the object to you (robot frame, meters) — TUNE to your seat:
 HANDOVER_XYZ = (0.16, 0.10, 0.16)
 HANDOVER_PAUSE_S = 1.5           # hold at the handover pose, then open
+# The handover deliberately IGNORES claw-machine mode: it pitches the gripper
+# outward to *present* the object (pointing it at the floor at 16 cm height is
+# both unreachable and weird). 60 = mostly toward you.
+HANDOVER_TILT = 60.0
+
+# Palm delivery: on 'h' it looks for your HAND first and places the object ON
+# YOUR PALM (falls back to the fixed pose above if no hand / out of reach).
+# Physics note: the homography maps the TABLE PLANE, so rest your palm flat ON
+# the table inside the reach fan — a floating hand maps with parallax error.
+PALM_DROP_HEIGHT = 0.05          # release height above table (~2-3 cm above the palm)
+PALM_SEARCH_S = 3.0              # how long to look for a hand before falling back
 
 # ── Personality (soul.md, rungs 1-2: it droops when it loses you) ──────────
 # The FOLLOW loop already knows when the hand appears and disappears -- that's all an
