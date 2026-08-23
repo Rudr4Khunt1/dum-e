@@ -78,8 +78,59 @@ def fetch(source):
 
 # ────────────────────────── analysis (the dance sheet) ──────────────────────────
 
+SHEET_VERSION = 2       # bump when the sheet gains fields -> old caches re-analyze
+MOUTH_HOP_S = 0.04      # vocal envelope sample period (25 Hz)
+
+
+def vocal_envelope(path, y, sr):
+    """The lip-sync track: 0..1 loudness envelope of the SINGER, 25 Hz.
+    Demucs = true vocal stem (best; fast with CUDA). HPSS fallback = harmonic
+    component band-passed to the vocal range (no heavy deps, decent).
+    Returns a list of floats, or None when DANCE_VOCALS='off' or extraction fails."""
+    import librosa
+    mode = getattr(C, "DANCE_VOCALS", "auto")
+    if mode == "off":
+        return None
+    use_demucs = False
+    if mode in ("auto", "demucs"):
+        try:
+            import torch  # noqa: F401
+            import demucs.api  # noqa: F401
+            use_demucs = (mode == "demucs") or torch.cuda.is_available()
+        except Exception:
+            use_demucs = False
+    try:
+        if use_demucs:
+            print("separating vocals (demucs)...")
+            import torch
+            from demucs.api import Separator
+            sep = Separator(model="htdemucs")
+            _origin, stems = sep.separate_audio_file(path)
+            v = stems["vocals"].mean(0).cpu().numpy()
+            vsr = sep.samplerate
+        else:
+            print("estimating vocals (hpss fallback)...")
+            import scipy.signal as ss
+            harm = librosa.effects.harmonic(y, margin=3.0)
+            sos = ss.butter(4, [200, 4000], btype="bandpass", fs=sr, output="sos")
+            v = ss.sosfilt(sos, harm)
+            vsr = sr
+        env = librosa.feature.rms(y=np.asarray(v, dtype=np.float32),
+                                  frame_length=2048,
+                                  hop_length=int(vsr * MOUTH_HOP_S))[0]
+        ref = np.quantile(env, 0.97) + 1e-9
+        env = np.clip((env / ref - 0.12) / 0.88, 0.0, 1.0)   # normalize + noise gate
+        k = np.ones(3) / 3.0                                  # ~120 ms smoothing
+        env = np.convolve(env, k, mode="same")
+        return [float(e) for e in env]
+    except Exception as e:  # noqa: BLE001 — lip-sync is a garnish, never fatal
+        print(f"[warn] vocal extraction failed ({e}) — accent pops only.")
+        return None
+
+
 def analyze(path):
-    """librosa -> beats, per-beat energy/accents, 8-beat phrase energy tiers."""
+    """librosa -> beats, per-beat energy/accents, 8-beat phrase energy tiers,
+    plus the vocal lip-sync envelope."""
     import librosa
     y, sr = librosa.load(path, mono=True)
     tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
@@ -104,11 +155,14 @@ def analyze(path):
         tiers.append(0 if e < 0.35 else (1 if e < 0.65 else 2))
 
     return {
+        "v": SHEET_VERSION,
         "tempo": float(np.atleast_1d(tempo)[0]),
         "beats": [float(t) for t in beats],
         "energy": [float(e) for e in energy],
         "accent": [int(a) for a in accent],
         "tiers": tiers,
+        "mouth": vocal_envelope(path, y, sr),
+        "mouth_hop": MOUTH_HOP_S,
     }
 
 
@@ -118,7 +172,10 @@ def load_sheet(path, listen_cb=None):
     cache = path + ".dance.json"
     if os.path.exists(cache):
         with open(cache) as f:
-            return json.load(f), True
+            sheet = json.load(f)
+        if sheet.get("v") == SHEET_VERSION:
+            return sheet, True
+        print("dance sheet from an older version — re-learning the song.")
     result = {}
 
     def work():
@@ -191,6 +248,9 @@ class Conductor:
         self.accent = sheet["accent"]
         self.tiers = sheet["tiers"] or [1]
         self.stage = stage
+        m = sheet.get("mouth")
+        self.mouth = np.array(m, dtype=float) if m else None
+        self.mouth_hop = float(sheet.get("mouth_hop", 0.04))
         rng = random.Random(seed)
         self.figures = M.pick_figures(rng, self.tiers)
         self.caps = {j: C.MAX_DEG_PER_SEC.get(j, C.DEFAULT_MAX_DEG_PER_SEC) / C.DANCE_HZ
@@ -228,6 +288,13 @@ class Conductor:
         scale = master * C.DANCE_AMPLITUDE * M.TIER_MULT[tier]
         off = M.figure_offsets(b, p, self.accent_env(b), scale)
         off["wrist_flex"] *= C.DANCE_NOD_SIGN
+        # lip-sync: the mouth follows the SINGER; accent pops still win in
+        # instrumental stretches (max = whichever wants it open more)
+        if self.mouth is not None:
+            i = (t - C.DANCE_BEAT_OFFSET_S) / self.mouth_hop
+            vo = float(np.interp(i, np.arange(len(self.mouth)), self.mouth))
+            off["gripper"] = max(off["gripper"],
+                                 master * C.DANCE_AMPLITUDE * C.DANCE_MOUTH_MAX * vo)
         off["gripper"] *= C.DANCE_MOUTH_SIGN
         pose = {}
         for j in JOINTS:

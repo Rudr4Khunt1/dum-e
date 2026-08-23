@@ -17,3 +17,4 @@ librosa>=0.10             # beat/energy analysis
 soundfile>=0.12
 sounddevice>=0.4          # audio playback (the master clock)
 yt-dlp                    # paste a YouTube URL instead of a file
+demucs                    # vocal-stem lip-sync (uses the GPU; HPSS fallback without it)

@@ -202,11 +202,18 @@ DANCE_BEAT_OFFSET_S = 0.03       # librosa places beats slightly late; raise if 
                                  # hits FEEL late, lower/negative if early
 DANCE_NOD_SIGN = +1              # +1 = nod dips DOWN on this rig; flip if inverted
 DANCE_MOUTH_SIGN = +1            # gripper "open" direction (matches MOUTH_SIGN)
+
+# Vocal lip-sync: the mouth follows the SINGER (vocal-stem loudness envelope,
+# extracted once at analysis time and cached in the dance sheet).
+#   "auto"   = Demucs stem separation if CUDA is available, else HPSS fallback
+#   "demucs" / "hpss" = force an engine     "off" = accent pops only (old behavior)
+DANCE_VOCALS = "auto"
+DANCE_MOUTH_MAX = 22.0           # gripper degrees at full belt
 # Hard envelope around the stage pose, per joint (degrees). The waveforms are
 # smooth by construction; these are the safety fence, not the shaping.
 DANCE_LIMITS = {
     "shoulder_pan": 14.0, "shoulder_lift": 10.0, "elbow_flex": 12.0,
-    "wrist_flex": 16.0, "wrist_roll": 20.0, "gripper": 18.0,
+    "wrist_flex": 16.0, "wrist_roll": 20.0, "gripper": 24.0,
 }
 
 # ── Personality (soul.md, rungs 1-2: it droops when it loses you) ──────────
