@@ -11,3 +11,9 @@ opencv-python>=4.10
 mediapipe>=0.10
 numpy
 ultralytics>=8.3          # YOLO for pick.py (yolo11n auto-downloads on first run)
+
+# dance/ (standalone) — also needs ffmpeg on PATH for YouTube fetching
+librosa>=0.10             # beat/energy analysis
+soundfile>=0.12
+sounddevice>=0.4          # audio playback (the master clock)
+yt-dlp                    # paste a YouTube URL instead of a file

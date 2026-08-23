@@ -195,6 +195,20 @@ HANDOVER_TILT = 60.0
 PALM_DROP_HEIGHT = 0.05          # release height above table (~2-3 cm above the palm)
 PALM_SEARCH_S = 3.0              # how long to look for a hand before falling back
 
+# ── Dance (dance/dance.py — standalone) ────────────────────────────────────
+DANCE_HZ = 30
+DANCE_AMPLITUDE = 1.0            # master size of all moves (0.6 = shy, 1.3 = wild)
+DANCE_BEAT_OFFSET_S = 0.03       # librosa places beats slightly late; raise if the
+                                 # hits FEEL late, lower/negative if early
+DANCE_NOD_SIGN = +1              # +1 = nod dips DOWN on this rig; flip if inverted
+DANCE_MOUTH_SIGN = +1            # gripper "open" direction (matches MOUTH_SIGN)
+# Hard envelope around the stage pose, per joint (degrees). The waveforms are
+# smooth by construction; these are the safety fence, not the shaping.
+DANCE_LIMITS = {
+    "shoulder_pan": 14.0, "shoulder_lift": 10.0, "elbow_flex": 12.0,
+    "wrist_flex": 16.0, "wrist_roll": 20.0, "gripper": 18.0,
+}
+
 # ── Personality (soul.md, rungs 1-2: it droops when it loses you) ──────────
 # The FOLLOW loop already knows when the hand appears and disappears -- that's all an
 # emotional beat needs. Mood also scales the SMOOTHING, which is where the feeling
