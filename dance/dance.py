@@ -51,8 +51,8 @@ JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex",
 # ────────────────────────── song acquisition ──────────────────────────
 
 def fetch(source):
-    """URL -> local wav via yt-dlp (cached); local path -> itself."""
-    if not source.startswith(("http://", "https://")):
+    """URL or ytsearch query -> local wav via yt-dlp (cached); local path -> itself."""
+    if not source.startswith(("http://", "https://", "ytsearch")):
         if not os.path.exists(source):
             raise SystemExit(f"no such file: {source}")
         return source

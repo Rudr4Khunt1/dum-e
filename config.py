@@ -216,6 +216,15 @@ DANCE_LIMITS = {
     "wrist_flex": 16.0, "wrist_roll": 20.0, "gripper": 24.0,
 }
 
+# ── Music watch (dance/music_watch.py — dances to whatever Chrome plays) ───
+# Reads Windows' media API (SMTC): title/artist/position of the current track.
+MUSIC_SOURCE_APPS = ("chrome",)  # which players to watch (substring match on the
+                                 # SMTC app id, lowercase). Add "spotify", "msedge"...
+MUSIC_POLL_S = 1.0               # how often to re-read SMTC (position resync rate)
+MUSIC_MIN_DURATION_S = 60.0      # tracks shorter than this = probably an ad -> ignore
+MUSIC_SNAP_S = 0.8               # clock error above this snaps (a seek happened);
+                                 # smaller errors are nudged in gently, invisibly
+
 # ── Personality (soul.md, rungs 1-2: it droops when it loses you) ──────────
 # The FOLLOW loop already knows when the hand appears and disappears -- that's all an
 # emotional beat needs. Mood also scales the SMOOTHING, which is where the feeling
