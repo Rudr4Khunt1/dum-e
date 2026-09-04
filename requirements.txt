@@ -18,4 +18,3 @@ soundfile>=0.12
 sounddevice>=0.4          # audio playback (the master clock)
 yt-dlp                    # paste a YouTube URL instead of a file
 demucs                    # vocal-stem lip-sync (uses the GPU; HPSS fallback without it)
-winsdk ; sys_platform == 'win32'   # music_watch.py: reads what Chrome is playing (SMTC)
